@@ -41,6 +41,7 @@ async function run() {
       updated_at timestamptz DEFAULT now(),
       inserted_at timestamptz DEFAULT now()
     );
+    ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
 
     CREATE OR REPLACE FUNCTION realtime.topic()
     RETURNS text LANGUAGE sql STABLE AS $$

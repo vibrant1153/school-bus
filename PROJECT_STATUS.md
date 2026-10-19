@@ -2,27 +2,26 @@
 
 ## Current Phase
 - **Phase 2/3: Supabase Foundation & Database Integration**
-- **Current Task**: Step 3 - Row Level Security (RLS) Policy Design & Test Plan (Design phase; awaiting approval before writing migration).
+- **Current Task**: Step 4 - Real authentication & account provisioning Edge Function.
 
 ---
 
 ## What Is Done
 - **Phase 0: Planning & Product Architecture** (Approved).
-- **Phase 1: UI & Prototype Screens** (Completed with mock/sample data):
-  - Bilingual support (English & Amharic draft) with `I18nProvider` and language switcher.
-  - Parent Home (`/home`): Status card (live, last seen, no trip), alert radius selection (200m/500m/1km), today's timeline, demo-state controls.
-  - Parent Live Map (`/map`): Leaflet map, route polyline, stop markers, bus marker with stale status, alert radius circle.
-  - Alerts Screen (`/alerts`): Sample alerts grouped by day, empty state toggle, bilingual alert text.
-  - Driver Screen (`/driver`): Pre-trip readiness checklist (geolocation accuracy, screen wake lock, network status), Start/End trip flow, live elapsed timer, stale GPS warnings.
-  - Manager Portal (`/manager`): Dashboard with trip monitoring, attention-needed alerts, setup health checklist, and prototype location history deletion card.
-  - Manager Subpages (`/manager/students`, `/manager/buses`): Student search and filters, bus/route switching with morning/afternoon reversed stops.
-  - PWA Configuration: `vite-plugin-pwa` manifest and service worker setup.
+- **Phase 1: UI & Prototype Screens** (Completed with mock/sample data).
 - **Phase 2 - Step 1: Supabase Setup & Client Connection** (Completed & Verified).
-- **Phase 2 - Step 2: Core Schema, Review Fixes & Dev Seed** (Completed & Verified):
-  - Core schema migration (`20261017000001_core_schema.sql`) applied to remote dev database (`debcrfoznffbcwmwporw`).
-  - Schema review fixes (`20261018000001_schema_review_fixes.sql`) applied, confirming composite `ON DELETE SET NULL (column)` constraints, trigger function search path, phone regex, date handling, and filtering indexes.
-  - Dev seed loaded (2 schools, 3 buses, 12 students) with environment safety guard restricting execution to dev only.
-  - Hardened anon RLS verification (`scripts/check-rls-deny.js`) verified: all 18 tables return 0 rows on SELECT (with data present in DB), INSERT blocked with 42501, UPDATE affects 0 rows, and DELETE affects 0 rows.
+- **Phase 2 - Step 2: Core Schema, Review Fixes & Dev Seed** (Completed & Verified).
+- **Phase 2 - Step 3: Hardened RLS, Privilege Lockdown, Immutability Triggers, Manager Writes, and Realtime Authorization** (Completed & Verified on Remote Dev):
+  - Applied migration `20261019000001_rls_policies_and_security.sql` to remote dev database (`debcrfoznffbcwmwporw`).
+  - Schema reconciliation verified against real applied schema.
+  - Sensitive columns relocated (`bus_plates`, `absence_reasons`) with full data preservation.
+  - Privileges hardened: `REVOKE ALL ON ALL TABLES/SEQUENCES/FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC`.
+  - Immutability triggers enforced on `profiles` (`role`, `school_id`, `id`, `phone`) and `guardians` (`student_id`, `profile_id`, `school_id`).
+  - Manager writes active across 11 tables with database-enforced `school_id` assignment and automated audit logging to `audit_log`.
+  - Decisions implemented: `app_security.school_today()`, coordinate sanity checks, revised `purge_location_history()`, timezone validation against `pg_timezone_names`, privacy isolation (parents/drivers see only own profile).
+  - Realtime authorization policy deployed on `realtime.messages` with `extension = 'broadcast'` and safe UUID parser `app_security.safe_uuid(text)`.
+  - Comprehensive PGlite test suite (`scripts/test-pglite-rls.js`) passed with 12/12 suites green.
+  - Remote verification (`scripts/check-rls-deny.js`) verified: all 20 tables strictly enforce default-deny across SELECT, INSERT, UPDATE, and DELETE for anon.
 
 ---
 
@@ -39,15 +38,10 @@
 ## Build Order (Phase 2/3)
 1. 🟢 **Step 1 (Done)**: Create Supabase project (dev), set up `.env`, connect client, verify connection.
 2. 🟢 **Step 2 (Done & Verified)**: Core tables and review fixes applied, seeded with fake data, composite foreign keys fixed, RLS default-deny verified across SELECT/INSERT/UPDATE/DELETE.
-3. 🟡 **Step 3 (Reconciled & Verified in PGlite — Awaiting User Review)**:
-   - Schema reconciliation complete against applied migrations 1 & 2 (`student_stops`, `students`, `audit_log`, `bus_location_history`).
-   - Privilege hardening: `REVOKE ALL ON ALL TABLES/SEQUENCES/FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC`; default privileges configured for `postgres` and `supabase_admin`.
-   - Immutability triggers enforced on `profiles` (`role`, `school_id`, `id`, `phone`) and `guardians` (`student_id`, `profile_id`, `school_id`).
-   - Manager writes implemented across 11 tables with database-enforced `school_id` assignment and automated audit logging to `audit_log`.
-   - Decisions implemented: `app_security.school_today()`, coordinate sanity checks, revised `purge_location_history()`, timezone validation against `pg_timezone_names`, privacy isolation (parents/drivers see only own profile).
-   - Realtime authorization policy implemented against real `realtime.messages` table with column `extension = 'broadcast'` and safe UUID parser `app_security.safe_uuid(text)`.
-   - Comprehensive test suite (`scripts/test-pglite-rls.js`) passed with 12/12 suites green in PGlite.
-   - Absolutely zero remote pushes performed; local verification only.
+3. 🟢 **Step 3 (Done & Verified on Remote Dev)**:
+   - Migration `20261019000001_rls_policies_and_security.sql` applied successfully to remote dev database.
+   - All 20 tables verified with hardened RLS and privilege revocation.
+   - PGlite test suite (12/12 passing) and remote verification suite (20/20 passing).
 4. ⚪ **Step 4**: Real authentication & account provisioning Edge Function.
 5. ⚪ **Step 5**: Parent screens on real data.
 6. ⚪ **Step 6**: Manager screens on real data (including location history deletion & audit log).

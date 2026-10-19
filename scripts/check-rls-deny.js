@@ -38,6 +38,7 @@ const tables = [
   'schools',
   'profiles',
   'buses',
+  'bus_plates',
   'routes',
   'route_schedules',
   'stops',
@@ -49,6 +50,7 @@ const tables = [
   'bus_locations_latest',
   'bus_location_history',
   'absences',
+  'absence_reasons',
   'alert_events',
   'push_subscriptions',
   'trip_summaries',
@@ -63,21 +65,23 @@ let allProtected = true
 const failures = []
 
 for (const table of tables) {
-  const pkCol = table === 'bus_locations_latest' ? 'bus_id' : 'id'
+  const pkCol = (table === 'bus_locations_latest' || table === 'bus_plates') ? 'bus_id' : (table === 'absence_reasons' ? 'absence_id' : 'id')
   const dummyUuid = '00000000-0000-0000-0000-000000000000'
 
-  // 1. Test SELECT: must return 2xx status AND exactly 0 rows. Any HTTP error or non-2xx is a FAIL.
+  // 1. Test SELECT: must be denied by either table privileges (42501 permission denied) or RLS (0 rows)
   const selectRes = await supabase.from(table).select('*').limit(5)
   let selectOk = false
 
-  if (selectRes.error) {
-    failures.push(`Table "${table}" SELECT failed with error: [${selectRes.error.code || selectRes.status}] ${selectRes.error.message}`)
-  } else if (selectRes.status < 200 || selectRes.status >= 300) {
-    failures.push(`Table "${table}" SELECT returned non-2xx status: ${selectRes.status}`)
-  } else if (selectRes.data && selectRes.data.length > 0) {
+  if (selectRes.data && selectRes.data.length > 0) {
     failures.push(`🚨 DATA LEAK: Table "${table}" returned ${selectRes.data.length} row(s) to unauthenticated anon key!`)
-  } else if (Array.isArray(selectRes.data) && selectRes.data.length === 0) {
+  } else if (selectRes.error && (selectRes.error.code === '42501' || selectRes.error.message?.includes('permission denied'))) {
+    // Privilege hardening: table privileges revoked from anon role (Fix 1)
     selectOk = true
+  } else if (Array.isArray(selectRes.data) && selectRes.data.length === 0) {
+    // RLS default deny: query succeeds but returns 0 rows
+    selectOk = true
+  } else if (selectRes.error) {
+    failures.push(`Table "${table}" SELECT failed with unexpected error: [${selectRes.error.code || selectRes.status}] ${selectRes.error.message}`)
   } else {
     failures.push(`Table "${table}" SELECT returned invalid or missing data payload`)
   }
@@ -135,4 +139,4 @@ if (!allProtected || failures.length > 0) {
   process.exit(1)
 }
 
-console.log('\n🎉 [RLS Check] SUCCESS: All 18 tables strictly enforce default-deny across SELECT, INSERT, UPDATE, and DELETE for anon.\n')
+console.log(`\n🎉 [RLS Check] SUCCESS: All ${tables.length} tables strictly enforce default-deny across SELECT, INSERT, UPDATE, and DELETE for anon.\n`)

@@ -981,9 +981,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTI
 
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin') THEN
-        EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, PUBLIC';
-        EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC';
-        EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, PUBLIC';
+        BEGIN
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, PUBLIC';
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC';
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, PUBLIC';
+        EXCEPTION WHEN insufficient_privilege THEN
+            NULL; -- In hosted Supabase, 'postgres' role lacks privilege to alter default privileges for internal 'supabase_admin' role
+        END;
     END IF;
 END $$;
 
@@ -1655,7 +1659,6 @@ BEGIN
         GRANT USAGE ON SCHEMA realtime TO authenticated;
         GRANT SELECT ON realtime.messages TO authenticated;
 
-        ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS realtime_trip_broadcast_policy ON realtime.messages;
 
         CREATE POLICY realtime_trip_broadcast_policy ON realtime.messages
