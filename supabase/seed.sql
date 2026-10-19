@@ -64,15 +64,25 @@ BEGIN
     RETURNING id INTO v_sch1_id;
 
     -- Buses for School 1
-    INSERT INTO buses (school_id, name, plate_number, capacity)
-    VALUES (v_sch1_id, 'Bus 1', 'TEST-001', 30)
-    ON CONFLICT (school_id, plate_number) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id INTO v_bus1_id;
+    SELECT id INTO v_bus1_id FROM buses WHERE school_id = v_sch1_id AND name = 'Bus 1';
+    IF v_bus1_id IS NULL THEN
+        INSERT INTO buses (school_id, name, capacity)
+        VALUES (v_sch1_id, 'Bus 1', 30)
+        RETURNING id INTO v_bus1_id;
+    END IF;
+    INSERT INTO bus_plates (bus_id, school_id, plate_number)
+    VALUES (v_bus1_id, v_sch1_id, 'TEST-001')
+    ON CONFLICT (school_id, plate_number) DO NOTHING;
 
-    INSERT INTO buses (school_id, name, plate_number, capacity)
-    VALUES (v_sch1_id, 'Bus 2', 'TEST-002', 30)
-    ON CONFLICT (school_id, plate_number) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id INTO v_bus2_id;
+    SELECT id INTO v_bus2_id FROM buses WHERE school_id = v_sch1_id AND name = 'Bus 2';
+    IF v_bus2_id IS NULL THEN
+        INSERT INTO buses (school_id, name, capacity)
+        VALUES (v_sch1_id, 'Bus 2', 30)
+        RETURNING id INTO v_bus2_id;
+    END IF;
+    INSERT INTO bus_plates (bus_id, school_id, plate_number)
+    VALUES (v_bus2_id, v_sch1_id, 'TEST-002')
+    ON CONFLICT (school_id, plate_number) DO NOTHING;
 
     -- Routes for School 1
     SELECT id INTO v_rt_a_id FROM routes WHERE school_id = v_sch1_id AND code = 'RT-A';
@@ -171,10 +181,15 @@ BEGIN
     RETURNING id INTO v_sch2_id;
 
     -- Bus for School 2
-    INSERT INTO buses (school_id, name, plate_number, capacity)
-    VALUES (v_sch2_id, 'Bus 3', 'TEST-003', 25)
-    ON CONFLICT (school_id, plate_number) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id INTO v_bus3_id;
+    SELECT id INTO v_bus3_id FROM buses WHERE school_id = v_sch2_id AND name = 'Bus 3';
+    IF v_bus3_id IS NULL THEN
+        INSERT INTO buses (school_id, name, capacity)
+        VALUES (v_sch2_id, 'Bus 3', 25)
+        RETURNING id INTO v_bus3_id;
+    END IF;
+    INSERT INTO bus_plates (bus_id, school_id, plate_number)
+    VALUES (v_bus3_id, v_sch2_id, 'TEST-003')
+    ON CONFLICT (school_id, plate_number) DO NOTHING;
 
     -- Route for School 2
     SELECT id INTO v_rt_c_id FROM routes WHERE school_id = v_sch2_id AND code = 'RT-C';

@@ -39,7 +39,15 @@
 ## Build Order (Phase 2/3)
 1. 🟢 **Step 1 (Done)**: Create Supabase project (dev), set up `.env`, connect client, verify connection.
 2. 🟢 **Step 2 (Done & Verified)**: Core tables and review fixes applied, seeded with fake data, composite foreign keys fixed, RLS default-deny verified across SELECT/INSERT/UPDATE/DELETE.
-3. 🟡 **Step 3 (In Progress - Design Review)**: Row Level Security (RLS) policy matrix + multi-tenant isolation test plan (design-first before writing migration).
+3. 🟡 **Step 3 (Completed in PGlite & Awaiting Review)**:
+   - Migration `20261019000001_rls_policies_and_security.sql` written with forward-only transactional DDL.
+   - Sensitive columns relocated (`absence_reasons`, `bus_plates`) with zero data loss and clean seed execution.
+   - Privilege hardening: default privileges altered, EXECUTE revoked from anon/PUBLIC across all functions.
+   - Realtime broadcast policies secured with safe regex parsing for per-trip topics.
+   - Comprehensive test suite (`scripts/test-pglite-rls.js`) passed with 12/12 suites green in PGlite.
+   - Remote transaction verification suite (`scripts/remote-dev-transaction-suite.sql`) prepared with strict project ref guards.
+   - Security function catalog (`docs/SECURITY_FUNCTIONS.md`) and matrix (`docs/SECURITY_MATRIX.md`) documented.
+   - Awaiting user approval before remote `supabase db push`.
 4. ⚪ **Step 4**: Real authentication & account provisioning Edge Function.
 5. ⚪ **Step 5**: Parent screens on real data.
 6. ⚪ **Step 6**: Manager screens on real data (including location history deletion & audit log).
