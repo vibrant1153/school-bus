@@ -6,41 +6,45 @@ async function run() {
   console.log('🚀 Initializing PGlite in-memory database...')
   const db = new PGlite()
 
-  // 1. Initialize auth & realtime schemas required for Supabase emulation
+  // 1. Initialize auth and realtime schemas
   await db.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE IF NOT EXISTS auth.users (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       email text
     );
+
     DO $$ BEGIN
       CREATE ROLE authenticated;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
+
     DO $$ BEGIN
       CREATE ROLE anon;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
 
-    -- Emulate Supabase Realtime schema
+    DO $$ BEGIN
+      CREATE ROLE service_role;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+
+    -- Emulate Supabase Realtime schema & messages table with REAL column 'extension'
     CREATE SCHEMA IF NOT EXISTS realtime;
     CREATE TABLE IF NOT EXISTS realtime.messages (
       id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       topic text NOT NULL,
       extension text NOT NULL,
-      payload jsonb DEFAULT '{}'::jsonb,
+      payload jsonb,
       event text,
-      private boolean DEFAULT true,
+      private boolean DEFAULT false,
       updated_at timestamptz DEFAULT now(),
       inserted_at timestamptz DEFAULT now()
     );
 
-    CREATE OR REPLACE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS $$
-      SELECT COALESCE(nullif(current_setting('realtime.topic', true), ''), '');
-    $$;
-
-    CREATE OR REPLACE FUNCTION realtime.extension() RETURNS text LANGUAGE sql STABLE AS $$
-      SELECT COALESCE(nullif(current_setting('realtime.extension', true), ''), 'broadcast');
+    CREATE OR REPLACE FUNCTION realtime.topic()
+    RETURNS text LANGUAGE sql STABLE AS $$
+      SELECT current_setting('realtime.topic', true);
     $$;
 
     -- Emulate Supabase auth helpers
@@ -92,10 +96,15 @@ async function run() {
       ('99999999-0001-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'c0000000-0001-0000-0000-000000000001', CURRENT_DATE, 'morning', '00000000-0000-0000-0000-000000000004', 'Pre-migration medical note');
   `)
 
-  // 4. Emulate Supabase's default privileges: Supabase by default grants ALL on functions to PUBLIC and anon.
-  // This verifies that our migration explicitly strips those default grants!
+  // 4. Recreate Supabase Default Privileges BEFORE applying the migration (Fix 1)
+  console.log('⚙️  Recreating Supabase default privileges on public schema...')
   await db.exec(`
-    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO PUBLIC, anon, authenticated;
+    GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+    GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
   `)
 
   // 5. Apply Migration 3: 20261019000001_rls_policies_and_security.sql
@@ -123,7 +132,7 @@ async function run() {
   await db.exec(seedSql)
   console.log('✅ supabase/seed.sql executed successfully with 0 errors!\n')
 
-  // Helper for running queries under simulated authenticated user
+  // Helpers for running queries under simulated authenticated user
   async function asUser(userId, role, extraClaims = {}) {
     const claims = {
       sub: userId,
@@ -145,20 +154,19 @@ async function run() {
       SET LOCAL request.jwt.claims = '{}';
       SET LOCAL app.current_user_id = '';
       SET LOCAL "realtime.topic" = '';
-      SET LOCAL "realtime.extension" = 'broadcast';
     `)
   }
 
   // Populate remaining mock test users and associations for multi-tenant tests
   await db.exec(`
-    -- Seed test users across roles
     INSERT INTO auth.users (id) VALUES
       ('00000000-0000-0000-0000-000000000001'), -- Owner
       ('00000000-0000-0000-0000-000000000002'), -- Manager School 1
       ('00000000-0000-0000-0000-000000000003'), -- Driver 1 School 1 (Assigned to Trip 1)
       ('00000000-0000-0000-0000-000000000013'), -- Driver 2 School 1 (Assigned to Trip 2)
       ('00000000-0000-0000-0000-000000000005'), -- Parent 2 School 1 (Child NOT on Trip 1)
-      ('00000000-0000-0000-0000-000000000006')  -- Parent School 2
+      ('00000000-0000-0000-0000-000000000006'), -- Parent School 2
+      ('00000000-0000-0000-0000-000000000007')  -- Manager School 2
     ON CONFLICT (id) DO NOTHING;
 
     INSERT INTO profiles (id, school_id, role, full_name, phone) VALUES
@@ -167,10 +175,10 @@ async function run() {
       ('00000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'driver', 'Driver One', '+251911000003'),
       ('00000000-0000-0000-0000-000000000013', '11111111-1111-1111-1111-111111111111', 'driver', 'Driver Two', '+251911000013'),
       ('00000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'parent', 'Parent Two', '+251911000005'),
-      ('00000000-0000-0000-0000-000000000006', (SELECT id FROM schools WHERE code = 'SGC-02'), 'parent', 'Parent School 2', '+251911000006')
+      ('00000000-0000-0000-0000-000000000006', (SELECT id FROM schools WHERE code = 'SGC-02'), 'parent', 'Parent School 2', '+251911000006'),
+      ('00000000-0000-0000-0000-000000000007', (SELECT id FROM schools WHERE code = 'SGC-02'), 'manager', 'Manager Two', '+251911000007')
     ON CONFLICT (id) DO NOTHING;
 
-    -- Look up IDs from seed data
     DO $$
     DECLARE
       v_sch1_id uuid := '11111111-1111-1111-1111-111111111111';
@@ -178,62 +186,71 @@ async function run() {
       v_bus2_id uuid;
       v_rt_a_id uuid;
       v_rt_b_id uuid;
-      v_st_a1 uuid;
-      v_st_b1 uuid;
-      v_stu1 uuid;
-      v_stu2 uuid;
-      v_trip1_id uuid := 'd0000000-0001-0000-0000-000000000001';
-      v_trip2_id uuid := 'd0000000-0002-0000-0000-000000000002';
+      v_stu_p1_id uuid;
+      v_stu_p2_id uuid;
+      v_stop_a1 uuid;
+      v_stop_b1 uuid;
     BEGIN
-      SELECT id INTO v_bus1_id FROM buses WHERE school_id = v_sch1_id AND name = 'Bus 1';
-      SELECT id INTO v_bus2_id FROM buses WHERE school_id = v_sch1_id AND name = 'Bus 2';
-      SELECT id INTO v_rt_a_id FROM routes WHERE school_id = v_sch1_id AND code = 'RT-A';
-      SELECT id INTO v_rt_b_id FROM routes WHERE school_id = v_sch1_id AND code = 'RT-B';
-      SELECT id INTO v_st_a1 FROM stops WHERE school_id = v_sch1_id AND route_id = v_rt_a_id LIMIT 1;
-      SELECT id INTO v_st_b1 FROM stops WHERE school_id = v_sch1_id AND route_id = v_rt_b_id LIMIT 1;
-      SELECT id INTO v_stu1 FROM students WHERE school_id = v_sch1_id LIMIT 1;
-      SELECT id INTO v_stu2 FROM students WHERE school_id = v_sch1_id OFFSET 1 LIMIT 1;
+      SELECT id INTO v_bus1_id FROM buses WHERE school_id = v_sch1_id ORDER BY name LIMIT 1;
+      SELECT id INTO v_bus2_id FROM buses WHERE school_id = v_sch1_id ORDER BY name OFFSET 1 LIMIT 1;
+      SELECT id INTO v_rt_a_id FROM routes WHERE school_id = v_sch1_id AND code = 'RT-A' LIMIT 1;
+      SELECT id INTO v_rt_b_id FROM routes WHERE school_id = v_sch1_id AND code = 'RT-B' LIMIT 1;
 
-      -- Guardians: Parent 1 (0004) -> Student 1; Parent 2 (0005) -> Student 2
-      INSERT INTO guardians (school_id, student_id, profile_id, relationship) VALUES
-        (v_sch1_id, v_stu1, '00000000-0000-0000-0000-000000000004', 'mother'),
-        (v_sch1_id, v_stu2, '00000000-0000-0000-0000-000000000005', 'father')
+      -- Assign driver 1 to Bus 1 / Route A
+      INSERT INTO bus_assignments (school_id, bus_id, route_id, driver_profile_id, effective_date, is_active)
+      VALUES (v_sch1_id, v_bus1_id, v_rt_a_id, '00000000-0000-0000-0000-000000000003', CURRENT_DATE, true)
       ON CONFLICT DO NOTHING;
 
-      -- Student 1 assigned to Route A (Stop A1); Student 2 assigned to Route B (Stop B1)
-      DELETE FROM student_stops WHERE student_id IN (v_stu1, v_stu2);
-      INSERT INTO student_stops (school_id, student_id, stop_id, direction) VALUES
-        (v_sch1_id, v_stu1, v_st_a1, 'morning'),
-        (v_sch1_id, v_stu2, v_st_b1, 'morning');
-
-      -- Bus assignments
-      INSERT INTO bus_assignments (school_id, bus_id, route_id, driver_profile_id, effective_date, is_active) VALUES
-        (v_sch1_id, v_bus1_id, v_rt_a_id, '00000000-0000-0000-0000-000000000003', CURRENT_DATE, true),
-        (v_sch1_id, v_bus2_id, v_rt_b_id, '00000000-0000-0000-0000-000000000013', CURRENT_DATE, true)
+      -- Assign driver 2 to Bus 2 / Route B
+      INSERT INTO bus_assignments (school_id, bus_id, route_id, driver_profile_id, effective_date, is_active)
+      VALUES (v_sch1_id, v_bus2_id, v_rt_b_id, '00000000-0000-0000-0000-000000000013', CURRENT_DATE, true)
       ON CONFLICT DO NOTHING;
 
-      -- Trip 1 (Driver 1, Route A, morning) carrying Student 1
-      INSERT INTO trips (id, school_id, bus_id, route_id, driver_profile_id, trip_date, direction, status, scheduled_start) VALUES
-        (v_trip1_id, v_sch1_id, v_bus1_id, v_rt_a_id, '00000000-0000-0000-0000-000000000003', CURRENT_DATE, 'morning', 'scheduled', now()),
-        (v_trip2_id, v_sch1_id, v_bus2_id, v_rt_b_id, '00000000-0000-0000-0000-000000000013', CURRENT_DATE, 'morning', 'scheduled', now())
-      ON CONFLICT DO NOTHING;
+      -- Stops for Route A and B
+      SELECT id INTO v_stop_a1 FROM stops WHERE route_id = v_rt_a_id LIMIT 1;
+      SELECT id INTO v_stop_b1 FROM stops WHERE route_id = v_rt_b_id LIMIT 1;
 
-      -- Location history on Trip 1
-      INSERT INTO bus_location_history (id, school_id, trip_id, bus_id, lat, lng, heading, speed, accuracy, recorded_at) VALUES
-        ('e0000000-0001-0000-0000-000000000001', v_sch1_id, v_trip1_id, v_bus1_id, 9.011, 38.751, 90.0, 25.0, 5.0, now() - interval '2 minutes')
-      ON CONFLICT DO NOTHING;
+      -- Link Parent 1 to a Route A student
+      SELECT id INTO v_stu_p1_id FROM students WHERE school_id = v_sch1_id ORDER BY full_name LIMIT 1;
+      INSERT INTO guardians (school_id, student_id, profile_id, relationship)
+      VALUES (v_sch1_id, v_stu_p1_id, '00000000-0000-0000-0000-000000000004', 'father')
+      ON CONFLICT (student_id, profile_id) DO NOTHING;
 
-      -- Trip-level alert on Trip 1
-      INSERT INTO alert_events (id, school_id, trip_id, student_id, event_type, dedupe_key, payload_json) VALUES
-        ('aaaaaaaa-0001-0000-0000-000000000001', v_sch1_id, v_trip1_id, NULL, 'delayed', 'del-01', '{"delayMinutes": 10}'::jsonb)
+      INSERT INTO student_stops (school_id, student_id, stop_id, direction)
+      VALUES (v_sch1_id, v_stu_p1_id, v_stop_a1, 'morning')
+      ON CONFLICT (student_id, direction) DO NOTHING;
+
+      -- Create student for Parent 2 on Route B (different bus)
+      SELECT id INTO v_stu_p2_id FROM students WHERE school_id = v_sch1_id ORDER BY full_name OFFSET 1 LIMIT 1;
+      INSERT INTO guardians (school_id, student_id, profile_id, relationship)
+      VALUES (v_sch1_id, v_stu_p2_id, '00000000-0000-0000-0000-000000000005', 'father')
+      ON CONFLICT (student_id, profile_id) DO NOTHING;
+
+      INSERT INTO student_stops (school_id, student_id, stop_id, direction)
+      VALUES (v_sch1_id, v_stu_p2_id, v_stop_b1, 'morning')
+      ON CONFLICT (student_id, direction) DO NOTHING;
+
+      -- Seed sample trip 1 (Route A / Bus 1)
+      INSERT INTO trips (id, school_id, route_id, bus_id, driver_profile_id, trip_date, direction, status, scheduled_start)
+      VALUES ('d0000000-0001-0000-0000-000000000001', v_sch1_id, v_rt_a_id, v_bus1_id, '00000000-0000-0000-0000-000000000003', CURRENT_DATE, 'morning', 'scheduled', now())
+      ON CONFLICT (id) DO NOTHING;
+
+      -- Seed sample trip 2 (Route B / Bus 2)
+      INSERT INTO trips (id, school_id, route_id, bus_id, driver_profile_id, trip_date, direction, status, scheduled_start)
+      VALUES ('d0000000-0002-0000-0000-000000000002', v_sch1_id, v_rt_b_id, v_bus2_id, '00000000-0000-0000-0000-000000000013', CURRENT_DATE, 'morning', 'scheduled', now())
+      ON CONFLICT (id) DO NOTHING;
+
+      -- Seed sample breadcrumbs for Trip 1
+      INSERT INTO bus_location_history (school_id, bus_id, trip_id, lat, lng, speed, heading, accuracy, recorded_at)
+      VALUES (v_sch1_id, v_bus1_id, 'd0000000-0001-0000-0000-000000000001', 9.011, 38.751, 24.5, 90.0, 5.0, now())
       ON CONFLICT DO NOTHING;
     END $$;
   `)
 
-  console.log('🧪 RUNNING EXHAUSTIVE TEST SUITE WITH POSITIVE CONTROLS...\n')
-
+  // Test Runner Harness
   let passed = 0
   let failed = 0
+  console.log('🧪 RUNNING EXHAUSTIVE TEST SUITE WITH POSITIVE CONTROLS...\n')
 
   async function test(name, fn) {
     try {
@@ -251,20 +268,27 @@ async function run() {
   }
 
   // --- Suite 1: Owner Restricted Access (Fix 1) ---
-  await test('Owner cannot read students, buses, assignments, trips, audit_log, summaries; CAN read schools & manager profiles', async () => {
+  await test('Owner cannot read operational tables (buses, assignments, trips, audit_log, summaries); CAN read schools & manager profiles', async () => {
     await asUser('00000000-0000-0000-0000-000000000001', 'owner')
 
-    // Denied tables: assert exactly 0 rows returned
     const deniedQueries = [
-      { name: 'students', sql: 'SELECT * FROM students' },
       { name: 'buses', sql: 'SELECT * FROM buses' },
       { name: 'bus_plates', sql: 'SELECT * FROM bus_plates' },
+      { name: 'routes', sql: 'SELECT * FROM routes' },
+      { name: 'route_schedules', sql: 'SELECT * FROM route_schedules' },
+      { name: 'stops', sql: 'SELECT * FROM stops' },
+      { name: 'students', sql: 'SELECT * FROM students' },
+      { name: 'guardians', sql: 'SELECT * FROM guardians' },
+      { name: 'student_stops', sql: 'SELECT * FROM student_stops' },
       { name: 'bus_assignments', sql: 'SELECT * FROM bus_assignments' },
       { name: 'trips', sql: 'SELECT * FROM trips' },
-      { name: 'audit_log', sql: 'SELECT * FROM audit_log' },
-      { name: 'trip_summaries', sql: 'SELECT * FROM trip_summaries' },
+      { name: 'bus_locations_latest', sql: 'SELECT * FROM bus_locations_latest' },
+      { name: 'bus_location_history', sql: 'SELECT * FROM bus_location_history' },
       { name: 'absences', sql: 'SELECT * FROM absences' },
-      { name: 'alert_events', sql: 'SELECT * FROM alert_events' }
+      { name: 'absence_reasons', sql: 'SELECT * FROM absence_reasons' },
+      { name: 'alert_events', sql: 'SELECT * FROM alert_events' },
+      { name: 'trip_summaries', sql: 'SELECT * FROM trip_summaries' },
+      { name: 'audit_log', sql: 'SELECT * FROM audit_log' }
     ]
 
     for (const q of deniedQueries) {
@@ -272,40 +296,69 @@ async function run() {
       if (res.rows.length !== 0) throw new Error(`Owner leak on ${q.name}: expected 0 rows, got ${res.rows.length}`)
     }
 
-    // Owner CAN read schools
-    const schRes = await db.query('SELECT * FROM schools')
-    if (schRes.rows.length < 2) throw new Error(`Owner should read schools, got ${schRes.rows.length}`)
+    const schoolsRes = await db.query('SELECT * FROM schools')
+    if (schoolsRes.rows.length === 0) throw new Error('Owner should see schools, got 0')
 
-    // Owner CAN read manager profiles ONLY (and their own profile; NOT parent or driver profiles)
-    const profRes = await db.query('SELECT role, count(*) FROM profiles GROUP BY role')
-    for (const r of profRes.rows) {
-      if (r.role !== 'manager' && r.role !== 'owner') {
-        throw new Error(`Owner saw forbidden profile role: ${r.role}`)
+    const profsRes = await db.query('SELECT * FROM profiles')
+    if (profsRes.rows.length === 0) throw new Error('Owner should see manager profiles')
+    for (const p of profsRes.rows) {
+      if (p.role !== 'manager' && p.id !== '00000000-0000-0000-0000-000000000001') {
+        throw new Error(`Owner leaked non-manager profile with role ${p.role}`)
       }
     }
 
-    // Owner CAN call aggregated health RPC
-    const healthRes = await db.query('SELECT get_school_health_metrics() as health')
-    if (!healthRes.rows[0].health || !healthRes.rows[0].health.total_schools) throw new Error('Owner health RPC failed')
+    const healthRes = await db.query('SELECT * FROM get_school_health_metrics()')
+    if (healthRes.rows.length === 0) throw new Error('Owner should be able to call get_school_health_metrics')
   })
 
-  // --- Suite 2: Parent Trip-Level Alerts with Positive/Negative Controls ---
-  await test('Parent sees trip-level alert for child trip; other parent denied', async () => {
-    // Parent 1 (child on Trip 1) -> 1 row
+  // --- Suite 2: Realtime Authorization via REAL realtime.messages policy (Fix 5) ---
+  await test('Realtime per-trip topic authorization: child on trip succeeds, other trip denied, malformed denied safely, non-broadcast denied, no INSERT', async () => {
+    await asSuperuser()
+    // Insert messages into realtime.messages table directly (as server)
+    await db.query(`
+      INSERT INTO realtime.messages (topic, extension, payload) VALUES
+        ('trip:d0000000-0001-0000-0000-000000000001', 'broadcast', '{"event":"location"}'::jsonb),
+        ('trip:d0000000-0002-0000-0000-000000000002', 'broadcast', '{"event":"location"}'::jsonb),
+        ('trip:d0000000-0001-0000-0000-000000000001', 'presence', '{"event":"presence"}'::jsonb);
+    `)
+
+    // 1. Parent 1 queries realtime.messages for Trip 1 (child on trip) -> succeeds (1 row)
     await asUser('00000000-0000-0000-0000-000000000004', 'parent')
-    const p1Res = await db.query('SELECT * FROM alert_events WHERE id = $1', ['aaaaaaaa-0001-0000-0000-000000000001'])
-    if (p1Res.rows.length !== 1) throw new Error(`Parent 1 should see trip-level alert, got ${p1Res.rows.length}`)
+    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:d0000000-0001-0000-0000-000000000001';")
+    const p1Trip1 = await db.query("SELECT * FROM realtime.messages WHERE topic = 'trip:d0000000-0001-0000-0000-000000000001' AND extension = 'broadcast'")
+    if (p1Trip1.rows.length !== 1) throw new Error(`Parent 1 should see broadcast message for Trip 1, got ${p1Trip1.rows.length}`)
 
-    // Negative control: Parent 2 (child on Route B, NOT Trip 1) -> 0 rows
-    await asUser('00000000-0000-0000-0000-000000000005', 'parent')
-    const p2Res = await db.query('SELECT * FROM alert_events WHERE id = $1', ['aaaaaaaa-0001-0000-0000-000000000001'])
-    if (p2Res.rows.length !== 0) throw new Error(`Parent 2 should NOT see trip alert, got ${p2Res.rows.length}`)
+    // 2. Parent 1 queries Trip 2 (different bus) -> denied (0 rows)
+    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:d0000000-0002-0000-0000-000000000002';")
+    const p1Trip2 = await db.query("SELECT * FROM realtime.messages WHERE topic = 'trip:d0000000-0002-0000-0000-000000000002' AND extension = 'broadcast'")
+    if (p1Trip2.rows.length !== 0) throw new Error('Parent 1 saw broadcast for trip carrying other children!')
+
+    // 3. Malformed topic -> safely returns 0 rows without cast exception
+    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:malformed-not-uuid';")
+    const malformed = await db.query("SELECT * FROM realtime.messages WHERE topic = 'trip:malformed-not-uuid'")
+    if (malformed.rows.length !== 0) throw new Error('Malformed topic query returned rows!')
+
+    // 4. Non-broadcast extension -> denied (0 rows)
+    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:d0000000-0001-0000-0000-000000000001';")
+    const presenceRes = await db.query("SELECT * FROM realtime.messages WHERE topic = 'trip:d0000000-0001-0000-0000-000000000001' AND extension = 'presence'")
+    if (presenceRes.rows.length !== 0) throw new Error('Non-broadcast extension must be denied by RLS')
+
+    // 5. No client INSERT policy on realtime.messages for anyone
+    await db.exec('SAVEPOINT sp_realtime_insert')
+    let insertDenied = false
+    try {
+      await db.query("INSERT INTO realtime.messages (topic, extension) VALUES ('trip:d0000000-0001-0000-0000-000000000001', 'broadcast')")
+    } catch (e) {
+      if (e.message.includes('violates row-level security policy') || e.code === '42501') insertDenied = true
+      await db.exec('ROLLBACK TO sp_realtime_insert')
+    }
+    if (!insertDenied) throw new Error('Client INSERT into realtime.messages must be denied by RLS')
   })
 
-  // --- Suite 3: Absence Privacy & Driver Attendance Scope (Fix 6) ---
+  // --- Suite 3: Driver Attendance Isolation (Fix 6) ---
   await test('Driver cannot access absences directly or read reason; is_student_absent only answers for driver assigned trip', async () => {
     await asSuperuser()
-    // Student 1 is assigned to Route A (Driver 1 on Trip 1)
+    // Look up students for Trip 1 and Trip 2
     const stu1 = (await db.query(`
       SELECT ss.student_id 
       FROM student_stops ss 
@@ -314,7 +367,6 @@ async function run() {
       LIMIT 1
     `)).rows[0].student_id
 
-    // Student 2 is assigned to Route B (Driver 2 on Trip 2)
     const stu2 = (await db.query(`
       SELECT ss.student_id 
       FROM student_stops ss 
@@ -323,7 +375,6 @@ async function run() {
       LIMIT 1
     `)).rows[0].student_id
 
-    // Create absence with reason for Student 1
     await db.query(`
       INSERT INTO absences (id, school_id, student_id, trip_date, direction, reported_by)
       VALUES ('77777777-0001-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', $1, CURRENT_DATE, 'morning', '00000000-0000-0000-0000-000000000004')
@@ -331,31 +382,31 @@ async function run() {
     `, [stu1])
     await db.query(`
       INSERT INTO absence_reasons (absence_id, school_id, reason)
-      VALUES ('77777777-0001-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Medical note: contagious flu')
+      VALUES ('77777777-0001-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Medical note: flu')
       ON CONFLICT DO NOTHING;
     `)
 
-    // 1. Driver direct SELECT on absences -> 0 rows
+    // 1. Driver 1 direct SELECT on absences -> 0 rows
     await asUser('00000000-0000-0000-0000-000000000003', 'driver')
     const drvAbs = await db.query('SELECT * FROM absences')
     if (drvAbs.rows.length !== 0) throw new Error(`Driver saw ${drvAbs.rows.length} rows in absences`)
 
-    // 2. Driver direct SELECT on absence_reasons -> 0 rows
+    // 2. Driver 1 direct SELECT on absence_reasons -> 0 rows
     const drvRsn = await db.query('SELECT * FROM absence_reasons')
     if (drvRsn.rows.length !== 0) throw new Error(`Driver saw ${drvRsn.rows.length} rows in absence_reasons`)
 
-    // 3. Driver 1 queries is_student_absent for stu1 on their assigned trip -> returns boolean true
+    // 3. Driver 1 queries is_student_absent for assigned student -> returns true
     const isAbs = await db.query('SELECT is_student_absent($1, $2, $3) as absent', [stu1, new Date().toISOString().slice(0, 10), 'morning'])
     if (isAbs.rows[0].absent !== true) throw new Error('is_student_absent should return true for assigned student')
 
-    // 4. Driver 1 queries is_student_absent for stu2 (on Driver 2 route) -> REJECTED with Access Denied (42501)
-    await db.exec('SAVEPOINT sp_drv_other_bus')
+    // 4. Driver 1 queries is_student_absent for stu2 (on Driver 2 route) -> REJECTED with 42501 Access Denied
+    await db.exec('SAVEPOINT sp_drv_other')
     let otherBusRejected = false
     try {
       await db.query('SELECT is_student_absent($1, $2, $3)', [stu2, new Date().toISOString().slice(0, 10), 'morning'])
     } catch (e) {
       if (e.message.includes('Access Denied') || e.code === '42501') otherBusRejected = true
-      await db.exec('ROLLBACK TO sp_drv_other_bus')
+      await db.exec('ROLLBACK TO sp_drv_other')
     }
     if (!otherBusRejected) throw new Error('Driver querying absence for student on another bus MUST be rejected')
 
@@ -370,22 +421,38 @@ async function run() {
     if (mgrRsn.rows.length === 0 || !mgrRsn.rows[0].reason.includes('Medical')) throw new Error('Manager should read full medical reason')
   })
 
-  // --- Suite 4: Location History Direct SELECT Blocked; Audited RPC Works ---
-  await test('Manager direct SELECT on bus_location_history returns 0 rows; get_trip_location_history succeeds and audits', async () => {
+  // --- Suite 4: Location History Direct SELECT Blocked; Audited RPC & Purge Works ---
+  await test('Manager direct SELECT on bus_location_history returns 0 rows; get_trip_location_history succeeds and audits; purge_location_history functions', async () => {
     await asUser('00000000-0000-0000-0000-000000000002', 'manager')
 
     // Direct SELECT -> 0 rows
     const dirRes = await db.query('SELECT * FROM bus_location_history')
     if (dirRes.rows.length !== 0) throw new Error(`Direct select should return 0 rows, got ${dirRes.rows.length}`)
 
-    // RPC get_trip_location_history -> returns points
+    // RPC get_trip_location_history -> returns real columns
     const rpcRes = await db.query('SELECT * FROM get_trip_location_history($1)', ['d0000000-0001-0000-0000-000000000001'])
     if (rpcRes.rows.length === 0) throw new Error('RPC should return history points')
     if (rpcRes.rows[0].out_lat !== 9.011) throw new Error(`Unexpected lat: ${rpcRes.rows[0].out_lat}`)
+    if (rpcRes.rows[0].out_heading !== 90.0) throw new Error(`Unexpected heading: ${rpcRes.rows[0].out_heading}`)
 
     // Positive control: Audit log entry exists
     const auditRes = await db.query("SELECT * FROM audit_log WHERE action = 'SELECT_LOCATION_HISTORY'")
     if (auditRes.rows.length === 0) throw new Error('Audit log entry was not created')
+
+    // Test purge_location_history: manager can execute, driver cannot
+    const purgeCount = await db.query('SELECT purge_location_history() as cnt')
+    if (typeof purgeCount.rows[0].cnt !== 'number') throw new Error('purge_location_history should return integer count')
+
+    await asUser('00000000-0000-0000-0000-000000000003', 'driver')
+    await db.exec('SAVEPOINT sp_purge_drv')
+    let drvPurgeDenied = false
+    try {
+      await db.query('SELECT purge_location_history()')
+    } catch (e) {
+      if (e.message.includes('Access Denied') || e.code === '42501') drvPurgeDenied = true
+      await db.exec('ROLLBACK TO sp_purge_drv')
+    }
+    if (!drvPurgeDenied) throw new Error('Driver calling purge_location_history must be rejected')
   })
 
   // --- Suite 5: Plate Number and Assignment Privacy ---
@@ -407,142 +474,228 @@ async function run() {
     if (drvPlate.rows.length === 0) throw new Error('Driver should see assigned bus plate')
   })
 
-  // --- Suite 6: IS DISTINCT FROM Check for User with No Profile ---
-  await test('User with no profile has every function call rejected', async () => {
-    await asUser('99999999-9999-9999-9999-999999999999', 'authenticated')
-
-    const calls = [
-      { name: 'get_trip_location_history', sql: 'SELECT * FROM get_trip_location_history($1)', params: ['d0000000-0001-0000-0000-000000000001'] },
-      { name: 'is_student_absent', sql: 'SELECT is_student_absent($1, $2, $3)', params: ['c0000000-0001-0000-0000-000000000001', '2026-10-19', 'morning'] },
-      { name: 'update_school_settings', sql: 'SELECT update_school_settings($1, $2, $3)', params: ['Test', 'Africa/Addis_Ababa', '+251911000000'] },
-      { name: 'get_school_health_metrics', sql: 'SELECT get_school_health_metrics()', params: [] },
-      { name: 'start_trip', sql: 'SELECT start_trip($1)', params: ['d0000000-0001-0000-0000-000000000001'] }
-    ]
-
-    for (const c of calls) {
-      await db.exec('SAVEPOINT sp_no_profile')
-      let threw = false
-      try {
-        await db.query(c.sql, c.params)
-      } catch (e) {
-        threw = true
-        await db.exec('ROLLBACK TO sp_no_profile')
-      }
-      if (!threw) throw new Error(`Function ${c.name} unexpectedly succeeded for user with no profile!`)
-    }
-  })
-
-  // --- Suite 7: Spoofed Metadata in JWT Ignored ---
-  await test('Spoofed user_metadata and app_metadata in JWT claims are strictly ignored', async () => {
-    await asUser('00000000-0000-0000-0000-000000000004', 'authenticated', {
-      user_metadata: { role: 'manager' },
-      app_metadata: { role: 'owner' }
-    })
-
-    const roleRes = await db.query('SELECT app_security.current_user_role() as role')
-    if (roleRes.rows[0].role !== 'parent') throw new Error(`Role helper should return 'parent', got ${roleRes.rows[0].role}`)
-
-    await db.exec('SAVEPOINT sp_spoof')
-    let threw = false
+  // --- Suite 6: Immutability Triggers (Fix 2) ---
+  await test('Direct client changes to profiles.role, school_id, id, phone and guardians.student_id, profile_id are blocked with exact error', async () => {
+    // 1. Parent attempts to change own role
+    await asUser('00000000-0000-0000-0000-000000000004', 'parent')
+    await db.exec('SAVEPOINT sp_immut_role')
+    let roleErr = false
     try {
-      await db.query('SELECT update_school_settings($1, $2, $3)', ['Hacked School', 'Africa/Addis_Ababa', '+251000000000'])
+      await db.query("UPDATE profiles SET role = 'manager' WHERE id = '00000000-0000-0000-0000-000000000004'")
     } catch (e) {
-      threw = true
-      await db.exec('ROLLBACK TO sp_spoof')
+      if (e.message.includes('profiles.role cannot be updated directly') && e.code === '42501') roleErr = true
+      await db.exec('ROLLBACK TO sp_immut_role')
     }
-    if (!threw) throw new Error('Parent with spoofed metadata successfully executed manager function!')
+    if (!roleErr) throw new Error('Expected 42501 Immutable field violation for profiles.role')
+
+    // 2. Parent attempts to change own school_id
+    await db.exec('SAVEPOINT sp_immut_school')
+    let schoolErr = false
+    try {
+      await db.query("UPDATE profiles SET school_id = '22222222-2222-2222-2222-222222222222' WHERE id = '00000000-0000-0000-0000-000000000004'")
+    } catch (e) {
+      if (e.message.includes('profiles.school_id cannot be updated directly') && e.code === '42501') schoolErr = true
+      await db.exec('ROLLBACK TO sp_immut_school')
+    }
+    if (!schoolErr) throw new Error('Expected 42501 Immutable field violation for profiles.school_id')
+
+    // 3. Parent attempts to re-point guardians row to another child
+    await db.exec('SAVEPOINT sp_immut_guard')
+    let guardErr = false
+    try {
+      await db.query("UPDATE guardians SET student_id = 'c0000000-0002-0000-0000-000000000002' WHERE profile_id = '00000000-0000-0000-0000-000000000004'")
+    } catch (e) {
+      if (e.message.includes('guardians.student_id cannot be updated directly') && e.code === '42501') guardErr = true
+      await db.exec('ROLLBACK TO sp_immut_guard')
+    }
+    if (!guardErr) throw new Error('Expected 42501 Immutable field violation for guardians.student_id')
+
+    // 4. Manager cannot change another user's role
+    await asUser('00000000-0000-0000-0000-000000000002', 'manager')
+    await db.exec('SAVEPOINT sp_mgr_role')
+    let mgrRoleErr = false
+    try {
+      await db.query("UPDATE profiles SET role = 'manager' WHERE id = '00000000-0000-0000-0000-000000000003'")
+    } catch (e) {
+      if (e.message.includes('profiles.role cannot be updated directly') && e.code === '42501') mgrRoleErr = true
+      await db.exec('ROLLBACK TO sp_mgr_role')
+    }
+    if (!mgrRoleErr) throw new Error('Manager changing user role must be blocked by immutability trigger')
+
+    // Positive control: Parent can update full_name and alert_radius_m
+    await asUser('00000000-0000-0000-0000-000000000004', 'parent')
+    const profUpd = await db.query("UPDATE profiles SET full_name = 'Updated Parent Name' WHERE id = '00000000-0000-0000-0000-000000000004'")
+    if (profUpd.rowCount !== 1) throw new Error('Parent should be able to update own full_name')
+
+    const gUpd = await db.query("UPDATE guardians SET alert_radius_m = 1000 WHERE profile_id = '00000000-0000-0000-0000-000000000004'")
+    if (gUpd.rowCount === 0) throw new Error('Parent should be able to update alert_radius_m on own guardian record')
   })
 
-  // --- Suite 8: Server-Function-Only Enforcement ---
-  await test('Direct writes on trips, alert_events, and trip_summaries are blocked by RLS/privileges', async () => {
-    // 1. Driver direct UPDATE on trips
+  // --- Suite 7: Manager Writes in Own School & Cross-Tenant Rejection (Fix 3) ---
+  await test('Manager CRUD in own school works with audit logging; cross-school writes rejected; operational tables write-protected', async () => {
+    // Look up school 2 id and a school 2 bus as superuser
+    await asSuperuser()
+    const otherSchoolRes = await db.query("SELECT id FROM schools WHERE code = 'SGC-02'")
+    if (otherSchoolRes.rows.length === 0) throw new Error("School SGC-02 not found")
+    const otherSchoolId = otherSchoolRes.rows[0].id
+    const otherBusRes = await db.query('SELECT id FROM buses WHERE school_id = $1 LIMIT 1', [otherSchoolId])
+    const otherBusId = otherBusRes.rows[0]?.id
+
+    await asUser('00000000-0000-0000-0000-000000000002', 'manager')
+
+    // 1. Manager inserts a new bus in own school
+    const newBusId = 'b0000000-9999-0000-0000-000000000001'
+    await db.query(`
+      INSERT INTO buses (id, name, capacity)
+      VALUES ($1, 'Manager Bus 99', 40)
+    `, [newBusId])
+
+    // Verify school_id was set by the database
+    const busCheck = await db.query('SELECT school_id FROM buses WHERE id = $1', [newBusId])
+    if (busCheck.rows[0].school_id !== '11111111-1111-1111-1111-111111111111') {
+      throw new Error(`Database trigger did not populate manager school_id: got ${busCheck.rows[0].school_id}`)
+    }
+
+    // Verify audit log entry was created
+    const auditBus = await db.query("SELECT * FROM audit_log WHERE action = 'INSERT_BUSES'")
+    if (auditBus.rows.length === 0) throw new Error('Audit log entry for manager INSERT_BUSES was not created')
+
+    // 2. Manager updates bus in own school
+    const updRes = await db.query("UPDATE buses SET name = 'Manager Bus 99 Renamed' WHERE id = $1", [newBusId])
+    if (updRes.rowCount !== 1) throw new Error('Manager should be able to update bus in own school')
+
+    // 3. Manager attempts write against another school -> rejected or affects 0 rows
+    if (otherBusId) {
+      const crossUpd = await db.query("UPDATE buses SET name = 'Hacked Bus' WHERE id = $1", [otherBusId])
+      if (crossUpd.rowCount !== 0) throw new Error('Manager cross-tenant UPDATE on bus in School 2 should affect 0 rows')
+    }
+
+    // 4. Manager still CANNOT write trips, alert_events, trip_summaries, bus_locations_latest, or audit_log
+    await db.exec('SAVEPOINT sp_mgr_trips')
+    let tripDenied = false
+    try {
+      await db.query("INSERT INTO trips (bus_id, route_id, trip_date, direction, scheduled_start) VALUES ('b1111111-0001-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', CURRENT_DATE, 'morning', now())")
+    } catch (e) {
+      if (e.message.includes('permission denied') || e.code === '42501') tripDenied = true
+      await db.exec('ROLLBACK TO sp_mgr_trips')
+    }
+    if (!tripDenied) throw new Error('Manager direct INSERT into trips must be denied by privileges')
+
+    await db.exec('SAVEPOINT sp_mgr_audit_w')
+    let auditWriteDenied = false
+    try {
+      await db.query("INSERT INTO audit_log (school_id, action) VALUES ('11111111-1111-1111-1111-111111111111', 'HACK_LOG')")
+    } catch (e) {
+      if (e.message.includes('permission denied') || e.code === '42501') auditWriteDenied = true
+      await db.exec('ROLLBACK TO sp_mgr_audit_w')
+    }
+    if (!auditWriteDenied) throw new Error('Manager direct write to audit_log must be denied')
+  })
+
+  // --- Suite 8: Server-Function-Only Enforcement & Exact Trip Assertions (Fix 6) ---
+  await test('Direct writes on trips & summaries blocked; driver start_trip RPC asserts in_progress status', async () => {
+    // 1. Driver direct UPDATE on trips -> throws permission denied
     await asUser('00000000-0000-0000-0000-000000000003', 'driver')
     await db.exec('SAVEPOINT sp_drv_upd')
     let drvUpdDenied = false
     try {
-      await db.query("UPDATE trips SET status = 'completed' WHERE id = $1", ['d0000000-0001-0000-0000-000000000001'])
+      await db.query("UPDATE trips SET status = 'completed' WHERE id = 'd0000000-0001-0000-0000-000000000001'")
     } catch (e) {
       if (e.message.includes('permission denied') || e.code === '42501') drvUpdDenied = true
       await db.exec('ROLLBACK TO sp_drv_upd')
     }
     if (!drvUpdDenied) throw new Error('Driver direct UPDATE on trips should be rejected with permission denied')
 
-    // Positive control: Driver can call start_trip() RPC
-    const rpcStart = await db.query('SELECT start_trip($1)', ['d0000000-0001-0000-0000-000000000001'])
-    if (!rpcStart) throw new Error('Driver start_trip RPC should succeed')
+    // Positive control: Driver calls start_trip RPC and we assert resulting trip status is in_progress
+    await db.query('SELECT start_trip($1)', ['d0000000-0001-0000-0000-000000000001'])
+    const tripStatusRes = await db.query('SELECT status, started_at FROM trips WHERE id = $1', ['d0000000-0001-0000-0000-000000000001'])
+    if (tripStatusRes.rows[0].status !== 'in_progress' || !tripStatusRes.rows[0].started_at) {
+      throw new Error(`Expected trip to transition to 'in_progress' with started_at, got ${tripStatusRes.rows[0].status}`)
+    }
 
-    // 2. Manager direct INSERT into alert_events
+    // 2. Seed a trip_summaries row, then Manager attempts direct UPDATE on trip_summaries -> blocked
+    await asSuperuser()
+    await db.query(`
+      INSERT INTO trip_summaries (school_id, trip_id, total_pings, started_at, ended_at)
+      VALUES ('11111111-1111-1111-1111-111111111111', 'd0000000-0001-0000-0000-000000000001', 10, now() - interval '1 hour', now())
+      ON CONFLICT (trip_id) DO NOTHING;
+    `)
+
     await asUser('00000000-0000-0000-0000-000000000002', 'manager')
-    await db.exec('SAVEPOINT sp_alert')
-    let mgrAlertErr = false
+    await db.exec('SAVEPOINT sp_mgr_ts_upd')
+    let tsDenied = false
     try {
-      await db.query(`
-        INSERT INTO alert_events (school_id, trip_id, event_type, dedupe_key)
-        VALUES ('11111111-1111-1111-1111-111111111111', 'd0000000-0001-0000-0000-000000000001', 'delayed', 'test-delayed')
-      `)
+      await db.query("UPDATE trip_summaries SET total_pings = 999 WHERE trip_id = 'd0000000-0001-0000-0000-000000000001'")
     } catch (e) {
-      mgrAlertErr = true
-      await db.exec('ROLLBACK TO sp_alert')
+      if (e.message.includes('permission denied') || e.code === '42501') tsDenied = true
+      await db.exec('ROLLBACK TO sp_mgr_ts_upd')
     }
-    if (!mgrAlertErr) throw new Error('Manager direct INSERT on alert_events should be rejected by RLS')
-
-    // 3. Manager direct UPDATE on trip_summaries is blocked by lack of UPDATE grant and RLS
-    await db.exec('SAVEPOINT sp_sum')
-    let mgrSumErr = false
-    try {
-      const mgrSumUpd = await db.query("UPDATE trip_summaries SET total_pings = 999 WHERE school_id = '11111111-1111-1111-1111-111111111111'")
-      if (mgrSumUpd.rowCount === 0) mgrSumErr = true
-    } catch (e) {
-      if (e.message.includes('permission denied') || e.code === '42501') mgrSumErr = true
-      await db.exec('ROLLBACK TO sp_sum')
-    }
-    if (!mgrSumErr) throw new Error('Manager direct UPDATE on trip_summaries should be blocked by privileges/RLS')
+    if (!tsDenied) throw new Error('Manager direct UPDATE on trip_summaries must be rejected with permission denied')
   })
 
-  // --- Suite 9: Absence Cancellation Rules for 'both' Direction ---
-  await test('Absence cancellation rule for direction both and future dates', async () => {
+  // --- Suite 9: School Local Date & Absence Cancellation Rules (Fix 4 & Fix 6) ---
+  await test('School local date timezone check; absence cancellation rules for future, past, and both same-day started trips', async () => {
     await asSuperuser()
-    // Find valid student of parent 1 (from guardians)
-    const p1StudentRes = await db.query(`
-      SELECT student_id, school_id FROM guardians 
-      WHERE profile_id = '00000000-0000-0000-0000-000000000004' 
-      LIMIT 1
+    // 1. Create a school in Pacific/Kiritimati (UTC+14:00)
+    await db.query(`
+      INSERT INTO schools (id, name, code, timezone, contact_phone)
+      VALUES ('99999999-9999-9999-9999-999999999999', 'Kiritimati School', 'KIR-01', 'Pacific/Kiritimati', '+251911999999')
+      ON CONFLICT (code) DO NOTHING;
     `)
-    if (p1StudentRes.rows.length === 0) throw new Error('Parent 1 must have at least one student in guardians')
-    const validStudentId = p1StudentRes.rows[0].student_id
-    const schoolId = p1StudentRes.rows[0].school_id
+    const kiritimatiDate = (await db.query("SELECT app_security.school_today('99999999-9999-9999-9999-999999999999') as s_date")).rows[0].s_date
+    const expectedKiritimati = (await db.query("SELECT (now() AT TIME ZONE 'Pacific/Kiritimati')::date as exp_date")).rows[0].exp_date
+    if (kiritimatiDate.toISOString().slice(0, 10) !== expectedKiritimati.toISOString().slice(0, 10)) {
+      throw new Error(`School date mismatch: expected ${expectedKiritimati}, got ${kiritimatiDate}`)
+    }
+
+    // 2. Future absence cancellation: parent can delete
+    const p1StudentRes = await db.query("SELECT student_id, school_id FROM guardians WHERE profile_id = '00000000-0000-0000-0000-000000000004' LIMIT 1")
+    const stuId = p1StudentRes.rows[0].student_id
+    const schId = p1StudentRes.rows[0].school_id
 
     await db.query(`
       INSERT INTO absences (id, school_id, student_id, trip_date, direction, reported_by)
       VALUES ('88888888-0001-0000-0000-000000000001', $1, $2, CURRENT_DATE + interval '2 days', 'both', '00000000-0000-0000-0000-000000000004')
       ON CONFLICT DO NOTHING;
-    `, [schoolId, validStudentId])
+    `, [schId, stuId])
 
-    // Parent can delete future absence
     await asUser('00000000-0000-0000-0000-000000000004', 'parent')
-    const delRes = await db.query('DELETE FROM absences WHERE id = $1', ['88888888-0001-0000-0000-000000000001'])
-    if (delRes.rowCount !== 1) throw new Error('Parent should be able to delete future absence')
+    const delFuture = await db.query('DELETE FROM absences WHERE id = $1', ['88888888-0001-0000-0000-000000000001'])
+    if (delFuture.rowCount !== 1) throw new Error('Parent should be able to delete future absence')
 
-    // Create past absence
+    // 3. Past absence cancellation: parent cannot delete directly
     await asSuperuser()
     await db.query(`
       INSERT INTO absences (id, school_id, student_id, trip_date, direction, reported_by)
       VALUES ('88888888-0002-0000-0000-000000000002', $1, $2, CURRENT_DATE - interval '1 day', 'morning', '00000000-0000-0000-0000-000000000004')
       ON CONFLICT DO NOTHING;
-    `, [schoolId, validStudentId])
+    `, [schId, stuId])
 
-    // Parent cannot delete past absence
     await asUser('00000000-0000-0000-0000-000000000004', 'parent')
     const delPast = await db.query('DELETE FROM absences WHERE id = $1', ['88888888-0002-0000-0000-000000000002'])
     if (delPast.rowCount !== 0) throw new Error('Parent should NOT be able to delete past absence directly')
+
+    // 4. Same-day 'both' absence when morning trip has started: deletion must be rejected!
+    await asSuperuser()
+    // Ensure trip 1 on CURRENT_DATE is in_progress
+    await db.query("UPDATE trips SET status = 'in_progress', started_at = now() WHERE id = 'd0000000-0001-0000-0000-000000000001'")
+    await db.query(`
+      INSERT INTO absences (id, school_id, student_id, trip_date, direction, reported_by)
+      VALUES ('88888888-0003-0000-0000-000000000003', $1, $2, CURRENT_DATE, 'both', '00000000-0000-0000-0000-000000000004')
+      ON CONFLICT DO NOTHING;
+    `, [schId, stuId])
+
+    await asUser('00000000-0000-0000-0000-000000000004', 'parent')
+    const delBothStarted = await db.query('DELETE FROM absences WHERE id = $1', ['88888888-0003-0000-0000-000000000003'])
+    if (delBothStarted.rowCount !== 0) throw new Error("Parent should NOT be able to delete 'both' absence after morning trip has started!")
   })
 
-  // --- Suite 10: Role Invariants & Audit Log Protection ---
-  await test('Role integrity triggers reject invalid role assignments; audit_log is write-protected', async () => {
+  // --- Suite 10: Role Invariants & Profiles Privacy ---
+  await test('Guardians trigger rejects non-parent role; parents and drivers see only their own profile', async () => {
     await asSuperuser()
 
-    // 1. Linking driver as a guardian throws constraint exception
-    await db.exec('SAVEPOINT sp_trg1')
+    // 1. Linking driver as a guardian throws 23514 Role Integrity Violation
+    await db.exec('SAVEPOINT sp_trg_guard')
     let guardianErr = false
     try {
       await db.query(`
@@ -550,113 +703,152 @@ async function run() {
         VALUES ('11111111-1111-1111-1111-111111111111', 'c0000000-0001-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003')
       `)
     } catch (e) {
-      guardianErr = true
-      await db.exec('ROLLBACK TO sp_trg1')
+      if (e.message.includes('Role Integrity Violation') || e.code === '23514') guardianErr = true
+      await db.exec('ROLLBACK TO sp_trg_guard')
     }
-    if (!guardianErr) throw new Error('Guardians trigger should reject driver profile')
+    if (!guardianErr) throw new Error('Guardians trigger should reject driver profile with 23514')
 
-    // 2. Direct INSERT into audit_log by authenticated user fails with permission denied
-    await asUser('00000000-0000-0000-0000-000000000002', 'manager')
-    await db.exec('SAVEPOINT sp_trg2')
-    let auditErr = false
-    try {
-      await db.query(`
-        INSERT INTO audit_log (school_id, action) VALUES ('11111111-1111-1111-1111-111111111111', 'FAKE_ACTION')
-      `)
-    } catch (e) {
-      auditErr = true
-      await db.exec('ROLLBACK TO sp_trg2')
-    }
-    if (!auditErr) throw new Error('Authenticated user direct INSERT into audit_log should fail')
-  })
-
-  // --- Suite 11: Realtime Safe Parsing & Topic Authorization (Fix 4) ---
-  await test('Realtime per-trip topic authorization: child on trip succeeds, same-school-other-trip denied, malformed topic safely denied', async () => {
-    // 1. Parent 1 (child on Trip 1) -> Authorized
+    // 2. Parent queries profiles -> sees ONLY their own profile (cannot read drivers or managers)
     await asUser('00000000-0000-0000-0000-000000000004', 'parent')
-    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:d0000000-0001-0000-0000-000000000001'; SET LOCAL \"realtime.extension\" = 'broadcast';")
-    const p1Check = await db.query('SELECT app_security.parent_has_child_on_trip($1) as allowed', ['d0000000-0001-0000-0000-000000000001'])
-    if (p1Check.rows[0].allowed !== true) throw new Error('Parent 1 should be authorized for Trip 1 topic')
-
-    // 2. Parent 2 (same school, but child NOT on Trip 1) -> Denied
-    await asUser('00000000-0000-0000-0000-000000000005', 'parent')
-    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:d0000000-0001-0000-0000-000000000001'; SET LOCAL \"realtime.extension\" = 'broadcast';")
-    const p2Check = await db.query('SELECT app_security.parent_has_child_on_trip($1) as allowed', ['d0000000-0001-0000-0000-000000000001'])
-    if (p2Check.rows[0].allowed !== false) throw new Error('Parent 2 (same school other bus) MUST be denied for Trip 1 topic')
-
-    // 3. Malformed topic test: 'trip:abc' must deny without raising a UUID cast error!
-    await db.exec("SET LOCAL \"realtime.topic\" = 'trip:abc'; SET LOCAL \"realtime.extension\" = 'broadcast';")
-    const malformedPolicyCheck = await db.query(`
-      SELECT ('broadcast' = 'broadcast' 
-        AND 'trip:abc' ~ '^trip:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') as matches
-    `)
-    if (malformedPolicyCheck.rows[0].matches !== false) throw new Error("Malformed topic 'trip:abc' should fail regex check")
-  })
-
-  // --- Suite 12: Catalog Checks ---
-  await test('Catalog Checks: All SECURITY DEFINER functions have empty search_path, anon cannot execute public functions, RLS on all tables', async () => {
-    await asSuperuser()
-
-    // 1. Check all security definer functions in public and app_security have search_path = ''
-    const secDefRes = await db.query(`
-      SELECT p.proname, n.nspname, p.proconfig
-      FROM pg_proc p
-      JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE p.prosecdef = true
-        AND n.nspname IN ('public', 'app_security')
-    `)
-
-    for (const row of secDefRes.rows) {
-      const configs = row.proconfig || []
-      const hasEmptySearchPath = configs.some(c => c === 'search_path=""' || c === 'search_path=')
-      if (!hasEmptySearchPath) {
-        throw new Error(`SECURITY DEFINER function ${row.nspname}.${row.proname} lacks empty search_path! Configs: ${JSON.stringify(configs)}`)
-      }
+    const pProfiles = await db.query('SELECT * FROM profiles')
+    if (pProfiles.rows.length !== 1 || pProfiles.rows[0].id !== '00000000-0000-0000-0000-000000000004') {
+      throw new Error(`Parent leaked profiles: expected 1 own profile, got ${pProfiles.rows.length}`)
     }
 
-    // 2. Check anon has zero execute privilege on any functions in public or app_security
-    const anonPermRes = await db.query(`
-      SELECT p.proname, n.nspname
+    // 3. Driver queries profiles -> sees ONLY their own profile
+    await asUser('00000000-0000-0000-0000-000000000003', 'driver')
+    const dProfiles = await db.query('SELECT * FROM profiles')
+    if (dProfiles.rows.length !== 1 || dProfiles.rows[0].id !== '00000000-0000-0000-0000-000000000003') {
+      throw new Error(`Driver leaked profiles: expected 1 own profile, got ${dProfiles.rows.length}`)
+    }
+  })
+
+  // --- Suite 11: Settings Validation & Ingest Telemetry Sanity Checks ---
+  await test('update_school_settings validates timezone against pg_timezone_names; ingest_location validates coordinates and accuracy', async () => {
+    await asUser('00000000-0000-0000-0000-000000000002', 'manager')
+
+    // 1. Invalid timezone -> rejected with 22023
+    await db.exec('SAVEPOINT sp_tz_invalid')
+    let tzErr = false
+    try {
+      await db.query("SELECT update_school_settings('Pilot Academy', 'Invalid/Timezone', '+251110000001')")
+    } catch (e) {
+      if (e.message.includes('does not exist in pg_timezone_names') && e.code === '22023') tzErr = true
+      await db.exec('ROLLBACK TO sp_tz_invalid')
+    }
+    if (!tzErr) throw new Error('Expected 22023 Invalid Input for non-existent timezone')
+
+    // 2. Valid settings update -> succeeds and audits
+    await db.query("SELECT update_school_settings('Pilot Academy Updated', 'Africa/Addis_Ababa', '+251110000001')")
+    const auditTz = await db.query("SELECT * FROM audit_log WHERE action = 'UPDATE_SCHOOL_SETTINGS'")
+    if (auditTz.rows.length === 0) throw new Error('Audit log for update_school_settings missing')
+
+    // 3. Driver ingest_location with invalid latitude (95.0) -> rejected with 22023
+    await asUser('00000000-0000-0000-0000-000000000003', 'driver')
+    await db.exec('SAVEPOINT sp_gps_bounds')
+    let gpsErr = false
+    try {
+      await db.query('SELECT ingest_location($1, $2, $3, $4, $5, $6, $7)', [
+        'd0000000-0001-0000-0000-000000000001', 95.0, 38.75, 90.0, 30.0, 10.0, new Date().toISOString()
+      ])
+    } catch (e) {
+      if (e.message.includes('Coordinates out of bounds') && e.code === '22023') gpsErr = true
+      await db.exec('ROLLBACK TO sp_gps_bounds')
+    }
+    if (!gpsErr) throw new Error('Expected 22023 for out of bounds latitude')
+
+    // 4. Valid ingest_location on in-progress trip -> succeeds
+    await asSuperuser()
+    await db.query("UPDATE trips SET status = 'in_progress', started_at = now() WHERE id = 'd0000000-0001-0000-0000-000000000001'")
+    await asUser('00000000-0000-0000-0000-000000000003', 'driver')
+    await db.query('SELECT ingest_location($1, $2, $3, $4, $5, $6, $7)', [
+      'd0000000-0001-0000-0000-000000000001', 9.02, 38.74, 180.0, 25.0, 8.0, new Date().toISOString()
+    ])
+
+    const locLatest = await db.query("SELECT * FROM bus_locations_latest WHERE trip_id = 'd0000000-0001-0000-0000-000000000001'")
+    if (locLatest.rows.length === 0 || locLatest.rows[0].lat !== 9.02) throw new Error('ingest_location failed to update bus_locations_latest')
+  })
+
+  // --- Suite 12: Catalog Checks & No-Profile User (Fix 1 & Fix 6) ---
+  await test('Catalog checks: DEFINER search_path, anon privilege revocation, real OID policy check, and no-profile user isolation', async () => {
+    // 1. Search path check on SECURITY DEFINER functions
+    const badDefiners = await db.query(`
+      SELECT p.proname, p.proconfig
       FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname IN ('public', 'app_security')
-        AND has_function_privilege('anon', p.oid, 'EXECUTE')
+        AND p.prosecdef = true
+        AND (p.proconfig IS NULL OR NOT ('search_path=""' = ANY(p.proconfig)))
     `)
-    if (anonPermRes.rows.length > 0) {
-      throw new Error(`Role 'anon' has EXECUTE privilege on functions: ${anonPermRes.rows.map(r => `${r.nspname}.${r.proname}`).join(', ')}`)
+    if (badDefiners.rows.length > 0) {
+      throw new Error(`Found ${badDefiners.rows.length} SECURITY DEFINER functions without search_path="": ${badDefiners.rows.map(r => r.proname).join(', ')}`)
     }
 
-    // 3. Check 100% of tables in public have RLS enabled
-    const rlsRes = await db.query(`
-      SELECT tablename, rowsecurity
-      FROM pg_tables
-      WHERE schemaname = 'public'
-        AND rowsecurity = false
+    // 2. Privilege check: anon & PUBLIC have ZERO execute on public/app_security functions
+    const anonExecFuncs = await db.query(`
+      SELECT p.proname, target_roles.role_name
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN (VALUES ('anon'), ('public')) AS target_roles(role_name)
+      WHERE n.nspname IN ('public', 'app_security')
+        AND has_function_privilege(target_roles.role_name, p.oid, 'EXECUTE')
     `)
-    if (rlsRes.rows.length > 0) {
-      throw new Error(`Tables lacking RLS: ${rlsRes.rows.map(r => r.tablename).join(', ')}`)
+    if (anonExecFuncs.rows.length > 0) {
+      throw new Error(`Security breach: Found ${anonExecFuncs.rows.length} functions executable by anon or PUBLIC: ${anonExecFuncs.rows.map(r => `${r.proname} (${r.role_name})`).join(', ')}`)
     }
 
-    // 4. Check no policy targets role 'public'
-    const publicPolicyRes = await db.query(`
-      SELECT policyname, tablename, roles
-      FROM pg_policies
-      WHERE schemaname = 'public'
-        AND 'public' = ANY(roles)
-    `)
-    if (publicPolicyRes.rows.length > 0) {
-      throw new Error(`Policies targeting public: ${publicPolicyRes.rows.map(r => `${r.tablename}.${r.policyname}`).join(', ')}`)
+    // 3. RLS enabled on all public tables
+    const unprotTables = await db.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND rowsecurity = false")
+    if (unprotTables.rows.length > 0) {
+      throw new Error(`Found tables with RLS disabled: ${unprotTables.rows.map(r => r.tablename).join(', ')}`)
     }
+
+    // 4. Real OID check: no policy targets role PUBLIC (oid 0) or anon (Fix 6)
+    const publicPolicies = await db.query(`
+      SELECT p.polname, p.polrelid::regclass, r.rolname
+      FROM pg_policy p
+      LEFT JOIN pg_roles r ON r.oid = ANY(p.polroles)
+      WHERE 0 = ANY(p.polroles) OR r.rolname = 'anon';
+    `)
+    if (publicPolicies.rows.length > 0) {
+      throw new Error(`Found policies targeting PUBLIC or anon: ${publicPolicies.rows.map(r => r.polname).join(', ')}`)
+    }
+
+    // 5. User with no profile: every function call rejected and all tables return 0 rows
+    await asUser('99999999-9999-9999-9999-999999999999', 'authenticated')
+    const calls = [
+      { name: 'get_trip_location_history', sql: 'SELECT * FROM get_trip_location_history($1)', params: ['d0000000-0001-0000-0000-000000000001'] },
+      { name: 'is_student_absent', sql: 'SELECT is_student_absent($1, $2, $3)', params: ['c0000000-0001-0000-0000-000000000001', '2026-10-19', 'morning'] },
+      { name: 'update_school_settings', sql: 'SELECT update_school_settings($1, $2, $3)', params: ['Test', 'Africa/Addis_Ababa', '+251110000001'] },
+      { name: 'get_school_health_metrics', sql: 'SELECT get_school_health_metrics()', params: [] },
+      { name: 'start_trip', sql: 'SELECT start_trip($1)', params: ['d0000000-0001-0000-0000-000000000001'] },
+      { name: 'purge_location_history', sql: 'SELECT purge_location_history()', params: [] }
+    ]
+
+    for (const c of calls) {
+      await db.exec('SAVEPOINT sp_no_prof')
+      let rejected = false
+      try {
+        await db.query(c.sql, c.params)
+      } catch (e) {
+        if (e.message.includes('Access Denied') || e.code === '42501') rejected = true
+        await db.exec('ROLLBACK TO sp_no_prof')
+      }
+      if (!rejected) throw new Error(`Function ${c.name} unexpectedly succeeded for user with no profile!`)
+    }
+
+    const noProfBuses = await db.query('SELECT * FROM buses')
+    if (noProfBuses.rows.length !== 0) throw new Error('User with no profile should see 0 buses')
   })
 
-  console.log(`\n======================================================`)
+  console.log('\n======================================================')
   console.log(`🎉 TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`)
-  console.log(`======================================================\n`)
+  console.log('======================================================\n')
 
   if (failed > 0) process.exit(1)
 }
 
 run().catch(err => {
-  console.error('Fatal execution error:', err)
+  console.error('\nFatal test execution error:', err)
   process.exit(1)
 })

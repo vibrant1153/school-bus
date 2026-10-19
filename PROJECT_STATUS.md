@@ -39,15 +39,15 @@
 ## Build Order (Phase 2/3)
 1. 🟢 **Step 1 (Done)**: Create Supabase project (dev), set up `.env`, connect client, verify connection.
 2. 🟢 **Step 2 (Done & Verified)**: Core tables and review fixes applied, seeded with fake data, composite foreign keys fixed, RLS default-deny verified across SELECT/INSERT/UPDATE/DELETE.
-3. 🟡 **Step 3 (Completed in PGlite & Awaiting Review)**:
-   - Migration `20261019000001_rls_policies_and_security.sql` written with forward-only transactional DDL.
-   - Sensitive columns relocated (`absence_reasons`, `bus_plates`) with zero data loss and clean seed execution.
-   - Privilege hardening: default privileges altered, EXECUTE revoked from anon/PUBLIC across all functions.
-   - Realtime broadcast policies secured with safe regex parsing for per-trip topics.
+3. 🟡 **Step 3 (Reconciled & Verified in PGlite — Awaiting User Review)**:
+   - Schema reconciliation complete against applied migrations 1 & 2 (`student_stops`, `students`, `audit_log`, `bus_location_history`).
+   - Privilege hardening: `REVOKE ALL ON ALL TABLES/SEQUENCES/FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC`; default privileges configured for `postgres` and `supabase_admin`.
+   - Immutability triggers enforced on `profiles` (`role`, `school_id`, `id`, `phone`) and `guardians` (`student_id`, `profile_id`, `school_id`).
+   - Manager writes implemented across 11 tables with database-enforced `school_id` assignment and automated audit logging to `audit_log`.
+   - Decisions implemented: `app_security.school_today()`, coordinate sanity checks, revised `purge_location_history()`, timezone validation against `pg_timezone_names`, privacy isolation (parents/drivers see only own profile).
+   - Realtime authorization policy implemented against real `realtime.messages` table with column `extension = 'broadcast'` and safe UUID parser `app_security.safe_uuid(text)`.
    - Comprehensive test suite (`scripts/test-pglite-rls.js`) passed with 12/12 suites green in PGlite.
-   - Remote transaction verification suite (`scripts/remote-dev-transaction-suite.sql`) prepared with strict project ref guards.
-   - Security function catalog (`docs/SECURITY_FUNCTIONS.md`) and matrix (`docs/SECURITY_MATRIX.md`) documented.
-   - Awaiting user approval before remote `supabase db push`.
+   - Absolutely zero remote pushes performed; local verification only.
 4. ⚪ **Step 4**: Real authentication & account provisioning Edge Function.
 5. ⚪ **Step 5**: Parent screens on real data.
 6. ⚪ **Step 6**: Manager screens on real data (including location history deletion & audit log).
