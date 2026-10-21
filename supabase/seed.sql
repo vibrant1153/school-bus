@@ -41,6 +41,23 @@ BEGIN
     -- ==========================================================================
     -- PRODUCTION SAFETY GUARD
     -- ==========================================================================
+    -- 0. Require app_security.environment table with name = 'dev'
+    DECLARE
+        v_has_dev_marker boolean := false;
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_schema = 'app_security' AND table_name = 'environment'
+        ) THEN
+            EXECUTE 'SELECT EXISTS (SELECT 1 FROM app_security.environment WHERE name = ''dev'')' INTO v_has_dev_marker;
+        END IF;
+
+        IF NOT v_has_dev_marker THEN
+            RAISE EXCEPTION 'Environment Guard: Target database missing app_security.environment marker table with dev row (run scripts/mark-dev-environment.sql first).'
+                USING ERRCODE = '55000';
+        END IF;
+    END;
+
     -- 1. Block if app.environment is explicitly marked as non-development
     IF current_setting('app.environment', true) IN ('production', 'prod', 'staging') THEN
         RAISE EXCEPTION 'CRITICAL: seed.sql cannot be executed in % environment!', current_setting('app.environment', true);

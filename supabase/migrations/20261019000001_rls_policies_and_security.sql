@@ -112,11 +112,18 @@ CREATE SCHEMA IF NOT EXISTS app_security;
 REVOKE ALL ON SCHEMA app_security FROM PUBLIC, anon;
 GRANT USAGE ON SCHEMA app_security TO authenticated;
 
+-- Add is_active column to profiles for user deactivation / lifecycle control
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
+-- Allow system-level platform maintenance audit entries (e.g. purge_expired_location_history) without a school_id
+ALTER TABLE public.audit_log ALTER COLUMN school_id DROP NOT NULL;
+
 -- Helper 0: Safe UUID parse helper (avoids cast errors on malformed topics)
 CREATE OR REPLACE FUNCTION app_security.safe_uuid(p_val text)
 RETURNS uuid
 LANGUAGE sql
 IMMUTABLE
+SET search_path = ''
 AS $$
     SELECT CASE 
         WHEN p_val ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' 
@@ -125,7 +132,7 @@ AS $$
     END;
 $$;
 
--- Helper 1: Current authenticated user role from profiles (never from JWT metadata)
+-- Helper 1: Current authenticated user role from profiles (returns NULL if inactive)
 CREATE OR REPLACE FUNCTION app_security.current_user_role()
 RETURNS text
 LANGUAGE sql
@@ -133,10 +140,10 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-    SELECT role FROM public.profiles WHERE id = (SELECT auth.uid());
+    SELECT role FROM public.profiles WHERE id = (SELECT auth.uid()) AND is_active = true;
 $$;
 
--- Helper 2: Current authenticated user school_id
+-- Helper 2: Current authenticated user school_id (returns NULL if inactive)
 CREATE OR REPLACE FUNCTION app_security.current_user_school_id()
 RETURNS uuid
 LANGUAGE sql
@@ -144,7 +151,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-    SELECT school_id FROM public.profiles WHERE id = (SELECT auth.uid());
+    SELECT school_id FROM public.profiles WHERE id = (SELECT auth.uid()) AND is_active = true;
 $$;
 
 -- Helper 3: School local date helper (replaces CURRENT_DATE for school-aware operations)
@@ -158,6 +165,9 @@ AS $$
 DECLARE
     v_tz text;
 BEGIN
+    IF p_school_id IS NULL THEN
+        RETURN CURRENT_DATE;
+    END IF;
     SELECT timezone INTO v_tz FROM public.schools WHERE id = p_school_id;
     IF v_tz IS NULL THEN
         RETURN CURRENT_DATE;
@@ -267,11 +277,15 @@ BEGIN
         RETURN false;
     END IF;
 
-    SELECT role INTO v_user_role FROM public.profiles WHERE id = v_user_id;
+    -- Use app_security.current_user_role() so deactivated (is_active=false) users cannot cancel anything
+    v_user_role := (SELECT app_security.current_user_role());
+    IF v_user_role IS NULL THEN
+        RETURN false;
+    END IF;
 
     -- Managers can cancel within their school
     IF v_user_role = 'manager' THEN
-        RETURN (SELECT school_id FROM public.profiles WHERE id = v_user_id) = v_rec.school_id;
+        RETURN (SELECT app_security.current_user_school_id()) = v_rec.school_id;
     END IF;
 
     -- Parents can cancel only if they reported it
@@ -348,17 +362,21 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF NEW.role IS DISTINCT FROM OLD.role THEN
-        RAISE EXCEPTION 'Immutable field violation: profiles.role cannot be updated directly' USING ERRCODE = '42501';
-    END IF;
-    IF NEW.school_id IS DISTINCT FROM OLD.school_id THEN
-        RAISE EXCEPTION 'Immutable field violation: profiles.school_id cannot be updated directly' USING ERRCODE = '42501';
-    END IF;
-    IF NEW.id IS DISTINCT FROM OLD.id THEN
-        RAISE EXCEPTION 'Immutable field violation: profiles.id cannot be updated directly' USING ERRCODE = '42501';
-    END IF;
-    IF NEW.phone IS DISTINCT FROM OLD.phone THEN
-        RAISE EXCEPTION 'Immutable field violation: profiles.phone cannot be updated directly' USING ERRCODE = '42501';
+    -- Only enforce immutability on end-user client sessions (auth.uid() IS NOT NULL)
+    -- Service role / administrative server functions (auth.uid() IS NULL) may provision roles & phones
+    IF auth.uid() IS NOT NULL THEN
+        IF NEW.role IS DISTINCT FROM OLD.role THEN
+            RAISE EXCEPTION 'Immutable field violation: profiles.role cannot be updated directly' USING ERRCODE = '42501';
+        END IF;
+        IF NEW.school_id IS DISTINCT FROM OLD.school_id THEN
+            RAISE EXCEPTION 'Immutable field violation: profiles.school_id cannot be updated directly' USING ERRCODE = '42501';
+        END IF;
+        IF NEW.id IS DISTINCT FROM OLD.id THEN
+            RAISE EXCEPTION 'Immutable field violation: profiles.id cannot be updated directly' USING ERRCODE = '42501';
+        END IF;
+        IF NEW.phone IS DISTINCT FROM OLD.phone THEN
+            RAISE EXCEPTION 'Immutable field violation: profiles.phone cannot be updated directly' USING ERRCODE = '42501';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -385,6 +403,12 @@ BEGIN
     END IF;
     IF NEW.school_id IS DISTINCT FROM OLD.school_id THEN
         RAISE EXCEPTION 'Immutable field violation: guardians.school_id cannot be updated directly' USING ERRCODE = '42501';
+    END IF;
+    -- Only managers can change guardians.is_primary and relationship
+    IF (NEW.is_primary IS DISTINCT FROM OLD.is_primary OR NEW.relationship IS DISTINCT FROM OLD.relationship) THEN
+        IF (SELECT app_security.current_user_role()) IS DISTINCT FROM 'manager' THEN
+            RAISE EXCEPTION 'Access Denied: Only managers can change guardians.is_primary and relationship' USING ERRCODE = '42501';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -467,6 +491,8 @@ AS $$
 BEGIN
     IF (SELECT app_security.current_user_role()) = 'manager' THEN
         NEW.school_id := (SELECT app_security.current_user_school_id());
+    ELSIF TG_TABLE_NAME = 'absence_reasons' AND NEW.school_id IS NULL THEN
+        SELECT a.school_id INTO NEW.school_id FROM public.absences a WHERE a.id = NEW.absence_id;
     END IF;
     RETURN NEW;
 END;
@@ -495,27 +521,69 @@ SET search_path = ''
 AS $$
 DECLARE
     v_user_id uuid := (SELECT auth.uid());
-    v_role text := (SELECT app_security.current_user_role());
     v_school_id uuid;
     v_action text;
     v_details jsonb;
+    v_pk_id uuid;
+    v_changed_cols text[];
+    v_old_json jsonb;
+    v_new_json jsonb;
+    v_row_json jsonb;
 BEGIN
     IF v_user_id IS NULL THEN
         RETURN COALESCE(NEW, OLD);
     END IF;
 
-    IF TG_OP = 'INSERT' THEN
-        v_school_id := NEW.school_id;
-        v_action := 'INSERT_' || upper(TG_TABLE_NAME);
-        v_details := jsonb_build_object('row', to_jsonb(NEW));
+    IF TG_OP = 'DELETE' THEN
+        v_old_json := to_jsonb(OLD);
+        v_row_json := v_old_json;
     ELSIF TG_OP = 'UPDATE' THEN
-        v_school_id := NEW.school_id;
-        v_action := 'UPDATE_' || upper(TG_TABLE_NAME);
-        v_details := jsonb_build_object('old', to_jsonb(OLD), 'new', to_jsonb(NEW));
-    ELSIF TG_OP = 'DELETE' THEN
-        v_school_id := OLD.school_id;
-        v_action := 'DELETE_' || upper(TG_TABLE_NAME);
-        v_details := jsonb_build_object('old', to_jsonb(OLD));
+        v_old_json := to_jsonb(OLD);
+        v_new_json := to_jsonb(NEW);
+        v_row_json := v_new_json;
+    ELSE -- INSERT
+        v_new_json := to_jsonb(NEW);
+        v_row_json := v_new_json;
+    END IF;
+
+    -- Dynamically extract primary key regardless of whether table uses id, bus_id, or absence_id
+    v_pk_id := (COALESCE(
+        v_row_json ->> 'id',
+        v_row_json ->> 'bus_id',
+        v_row_json ->> 'absence_id'
+    ))::uuid;
+
+    v_school_id := (v_row_json ->> 'school_id')::uuid;
+    v_action := TG_OP || '_' || upper(TG_TABLE_NAME);
+
+    -- For sensitive tables: never log absence_reasons.reason, log only metadata and changed column names
+    IF TG_TABLE_NAME IN ('students', 'absence_reasons', 'guardians') THEN
+        IF TG_OP = 'UPDATE' THEN
+            SELECT array_agg(key) INTO v_changed_cols
+            FROM jsonb_each(v_new_json)
+            WHERE v_new_json -> key IS DISTINCT FROM v_old_json -> key;
+
+            v_details := jsonb_build_object(
+                'record_id', v_pk_id,
+                'school_id', v_school_id,
+                'operation', TG_OP,
+                'changed_columns', COALESCE(v_changed_cols, ARRAY[]::text[])
+            );
+        ELSE
+            v_details := jsonb_build_object(
+                'record_id', v_pk_id,
+                'school_id', v_school_id,
+                'operation', TG_OP
+            );
+        END IF;
+    ELSE
+        IF TG_OP = 'INSERT' THEN
+            v_details := jsonb_build_object('row', v_new_json);
+        ELSIF TG_OP = 'UPDATE' THEN
+            v_details := jsonb_build_object('old', v_old_json, 'new', v_new_json);
+        ELSE
+            v_details := jsonb_build_object('old', v_old_json);
+        END IF;
     END IF;
 
     INSERT INTO public.audit_log (school_id, performed_by, action, details_json)
@@ -624,13 +692,12 @@ BEGIN
         RAISE EXCEPTION 'Access Denied: Only managers and drivers may query student absence status' USING ERRCODE = '42501';
     END IF;
 
-    SELECT s.school_id INTO v_student_school_id FROM public.students s WHERE s.id = p_student_id;
+    SELECT s.school_id INTO v_student_school_id 
+    FROM public.students s 
+    WHERE s.id = p_student_id AND s.school_id = v_user_school_id;
+
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Student not found' USING ERRCODE = 'P0002';
-    END IF;
-
-    IF v_student_school_id IS DISTINCT FROM v_user_school_id THEN
-        RAISE EXCEPTION 'Access Denied: Student belongs to another school' USING ERRCODE = '42501';
     END IF;
 
     IF v_user_role = 'driver' THEN
@@ -739,17 +806,13 @@ BEGIN
     SELECT 
         s.id AS school_id,
         s.name AS school_name,
-        count(DISTINCT b.id) AS total_buses,
-        count(DISTINCT r.id) AS total_routes,
-        count(DISTINCT st.id) AS total_students,
-        count(DISTINCT t.id) FILTER (WHERE t.trip_date = app_security.school_today(s.id) AND t.status = 'in_progress') AS active_trips_today
+        (SELECT count(*) FROM public.buses b WHERE b.school_id = s.id AND b.is_active = true) AS total_buses,
+        (SELECT count(*) FROM public.routes r WHERE r.school_id = s.id AND r.is_active = true) AS total_routes,
+        (SELECT count(*) FROM public.students st WHERE st.school_id = s.id AND st.is_active = true) AS total_students,
+        (SELECT count(*) FROM public.trips t WHERE t.school_id = s.id AND t.trip_date = app_security.school_today(s.id) AND t.status = 'in_progress') AS active_trips_today
     FROM public.schools s
-    LEFT JOIN public.buses b ON b.school_id = s.id AND b.is_active = true
-    LEFT JOIN public.routes r ON r.school_id = s.id AND r.is_active = true
-    LEFT JOIN public.students st ON st.school_id = s.id AND st.is_active = true
-    LEFT JOIN public.trips t ON t.school_id = s.id
     WHERE (v_user_role = 'owner') OR (v_user_role = 'manager' AND s.id = v_user_school_id)
-    GROUP BY s.id, s.name;
+    ORDER BY s.name;
 END;
 $$;
 
@@ -782,6 +845,10 @@ BEGIN
         RAISE EXCEPTION 'Trip state error: Cannot start trip with status %', v_trip.status USING ERRCODE = '22000';
     END IF;
 
+    IF v_trip.trip_date IS DISTINCT FROM app_security.school_today(v_trip.school_id) THEN
+        RAISE EXCEPTION 'Trip state error: Cannot start trip for date % (today is %)', v_trip.trip_date, app_security.school_today(v_trip.school_id) USING ERRCODE = '22000';
+    END IF;
+
     UPDATE public.trips
     SET status = 'in_progress',
         started_at = now(),
@@ -793,7 +860,7 @@ BEGIN
 END;
 $$;
 
--- 4f. purge_location_history (Manager purge of finished trips before start of today; no 30-day floor)
+-- 4f. purge_location_history (Manager purge of finished/cancelled/stale trips before start of today)
 CREATE OR REPLACE FUNCTION public.purge_location_history()
 RETURNS integer
 LANGUAGE plpgsql
@@ -819,8 +886,11 @@ BEGIN
         USING public.trips t
         WHERE blh.trip_id = t.id
           AND blh.school_id = v_school_id
-          AND t.status = 'completed'
-          AND t.ended_at < v_today_start
+          AND (
+              t.status IN ('completed', 'cancelled')
+              OR (t.status = 'in_progress' AND t.trip_date < (now() AT TIME ZONE (SELECT timezone FROM public.schools WHERE id = v_school_id))::date)
+          )
+          AND blh.recorded_at < v_today_start
         RETURNING blh.id
     )
     SELECT count(*) INTO v_deleted FROM deleted;
@@ -836,6 +906,71 @@ BEGIN
     RETURN v_deleted;
 END;
 $$;
+
+-- 4f-2. app_security.purge_expired_location_history (Automated cron / service_role purge by retention age)
+CREATE OR REPLACE FUNCTION app_security.purge_expired_location_history(p_hours integer DEFAULT 72, p_summary_days integer DEFAULT 90)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_cutoff timestamptz;
+    v_summary_cutoff timestamptz;
+    v_deleted integer;
+    v_deleted_summaries integer;
+BEGIN
+    v_cutoff := now() - (p_hours || ' hours')::interval;
+    v_summary_cutoff := now() - (p_summary_days || ' days')::interval;
+
+    WITH deleted AS (
+        DELETE FROM public.bus_location_history
+        WHERE recorded_at < v_cutoff
+        RETURNING id
+    )
+    SELECT count(*) INTO v_deleted FROM deleted;
+
+    WITH deleted_sum AS (
+        DELETE FROM public.trip_summaries
+        WHERE created_at < v_summary_cutoff
+        RETURNING id
+    )
+    SELECT count(*) INTO v_deleted_summaries FROM deleted_sum;
+
+    INSERT INTO public.audit_log (performed_by, action, details_json)
+    VALUES (
+        NULL,
+        'SYSTEM_PURGE_EXPIRED_LOCATION_HISTORY',
+        jsonb_build_object(
+            'deleted_points', v_deleted, 
+            'cutoff', v_cutoff, 
+            'retention_hours', p_hours,
+            'deleted_summaries', v_deleted_summaries,
+            'summary_retention_days', p_summary_days
+        )
+    );
+
+    RETURN v_deleted;
+END;
+$$;
+
+-- Automatic 3-day purge job registration (pg_cron conditional block)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+        BEGIN
+            -- Schedule daily maintenance at 03:00 UTC (deletes location history > 3 days, summaries > 90 days)
+            PERFORM cron.unschedule('purge-location-history-3-days');
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END;
+        PERFORM cron.schedule(
+            'purge-location-history-3-days',
+            '0 3 * * *',
+            'SELECT app_security.purge_expired_location_history(72, 90);'
+        );
+    END IF;
+END $$;
 
 -- 4g. create_alert_event (Server function aligned with alert_events check constraint)
 CREATE OR REPLACE FUNCTION public.create_alert_event(
@@ -877,7 +1012,8 @@ BEGIN
 END;
 $$;
 
--- 4h. ingest_location (Driver GPS telemetry with physical plausibility checks)
+-- 4h. ingest_location (Driver GPS telemetry with physical plausibility and deduplication checks)
+-- Note: Browser GeolocationCoordinates.speed unit is meters per second (m/s).
 CREATE OR REPLACE FUNCTION public.ingest_location(
     p_trip_id uuid,
     p_lat double precision,
@@ -896,9 +1032,16 @@ DECLARE
     v_driver_id uuid := (SELECT auth.uid());
     v_role text := (SELECT app_security.current_user_role());
     v_trip record;
+    v_last_loc record;
+    v_time_diff double precision;
+    v_dist_meters double precision;
 BEGIN
     IF v_role IS DISTINCT FROM 'driver' THEN
         RAISE EXCEPTION 'Access Denied: Only drivers may ingest GPS telemetry' USING ERRCODE = '42501';
+    END IF;
+
+    IF p_lat IS NULL OR p_lng IS NULL OR p_accuracy IS NULL OR p_recorded_at IS NULL THEN
+        RAISE EXCEPTION 'Invalid Input: lat, lng, accuracy, and recorded_at cannot be null' USING ERRCODE = '22023';
     END IF;
 
     IF p_lat < -90.0 OR p_lat > 90.0 OR p_lng < -180.0 OR p_lng > 180.0 THEN
@@ -913,11 +1056,13 @@ BEGIN
         RAISE EXCEPTION 'Invalid Input: Heading must be between 0 and 360' USING ERRCODE = '22023';
     END IF;
 
-    IF p_speed IS NOT NULL AND (p_speed < 0.0 OR p_speed > 160.0) THEN
-        RAISE EXCEPTION 'Invalid Input: Speed out of plausible range' USING ERRCODE = '22023';
+    -- Speed check: p_speed is in meters per second (m/s). 45 m/s is ~162 km/h.
+    IF p_speed IS NOT NULL AND (p_speed < 0.0 OR p_speed > 45.0) THEN
+        RAISE EXCEPTION 'Invalid Input: Speed out of plausible range (unit: m/s, max: 45 m/s)' USING ERRCODE = '22023';
     END IF;
 
-    IF p_recorded_at < (now() - interval '24 hours') OR p_recorded_at > (now() + interval '5 minutes') THEN
+    -- Freshness window: about 60 s back / 10 s forward
+    IF p_recorded_at < (now() - interval '60 seconds') OR p_recorded_at > (now() + interval '10 seconds') THEN
         RAISE EXCEPTION 'Invalid Input: Timestamp outside freshness window' USING ERRCODE = '22023';
     END IF;
 
@@ -934,6 +1079,38 @@ BEGIN
         RAISE EXCEPTION 'Trip state error: Trip is not in progress' USING ERRCODE = '22000';
     END IF;
 
+    -- Fetch the previous location for this bus
+    SELECT lat, lng, accuracy, recorded_at INTO v_last_loc
+    FROM public.bus_locations_latest
+    WHERE bus_id = v_trip.bus_id;
+
+    IF v_last_loc.recorded_at IS NOT NULL THEN
+        -- Out-of-order check: if incoming point is older than or equal to last recorded, ignore
+        IF p_recorded_at <= v_last_loc.recorded_at THEN
+            RETURN;
+        END IF;
+
+        -- Minimum interval between stored points: about 5 s (we send every 12 s)
+        IF p_recorded_at < (v_last_loc.recorded_at + interval '5 seconds') THEN
+            RETURN;
+        END IF;
+
+        -- Reject implausible jumps between consecutive points
+        v_time_diff := EXTRACT(EPOCH FROM (p_recorded_at - v_last_loc.recorded_at));
+        IF v_time_diff > 0 THEN
+            -- Approximate Euclidean distance in meters on WGS84
+            v_dist_meters := sqrt(
+                power((p_lat - v_last_loc.lat) * 111320.0, 2) +
+                power((p_lng - v_last_loc.lng) * 111320.0 * cos(radians((p_lat + v_last_loc.lat) / 2.0)), 2)
+            );
+
+            -- Max plausible distance allowing 45 m/s plus combined GPS accuracy buffer
+            IF v_dist_meters > (45.0 * v_time_diff + COALESCE(p_accuracy, 0.0) + COALESCE(v_last_loc.accuracy, 0.0) + 50.0) THEN
+                RAISE EXCEPTION 'Invalid Input: Implausible location jump detected' USING ERRCODE = '22023';
+            END IF;
+        END IF;
+    END IF;
+
     INSERT INTO public.bus_locations_latest (
         bus_id, school_id, trip_id, lat, lng, heading, speed, accuracy, recorded_at, updated_at
     )
@@ -948,7 +1125,8 @@ BEGIN
         speed = EXCLUDED.speed,
         accuracy = EXCLUDED.accuracy,
         recorded_at = EXCLUDED.recorded_at,
-        updated_at = now();
+        updated_at = now()
+    WHERE EXCLUDED.recorded_at > bus_locations_latest.recorded_at;
 
     INSERT INTO public.bus_location_history (
         school_id, trip_id, bus_id, lat, lng, heading, speed, accuracy, recorded_at
@@ -956,6 +1134,74 @@ BEGIN
     VALUES (
         v_trip.school_id, p_trip_id, v_trip.bus_id, p_lat, p_lng, p_heading, p_speed, p_accuracy, p_recorded_at
     );
+END;
+$$;
+
+-- 4i. create_school (Audited school creation callable only by role owner)
+CREATE OR REPLACE FUNCTION public.create_school(
+    name text,
+    code text,
+    timezone text,
+    phone text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_owner_id uuid := (SELECT auth.uid());
+    v_role text := (SELECT app_security.current_user_role());
+    v_code text;
+    v_school_id uuid;
+BEGIN
+    IF v_role IS DISTINCT FROM 'owner' THEN
+        RAISE EXCEPTION 'Access Denied: Only platform owner can create schools' USING ERRCODE = '42501';
+    END IF;
+
+    IF name IS NULL OR length(trim(name)) < 2 THEN
+        RAISE EXCEPTION 'Validation Error: School name must be at least 2 characters' USING ERRCODE = '22023';
+    END IF;
+
+    IF code IS NULL OR length(trim(code)) < 2 THEN
+        RAISE EXCEPTION 'Validation Error: School code must be at least 2 characters' USING ERRCODE = '22023';
+    END IF;
+
+    v_code := upper(trim(code));
+
+    IF EXISTS (SELECT 1 FROM public.schools s WHERE s.code = v_code) THEN
+        RAISE EXCEPTION 'Unique violation: School code % already exists', v_code USING ERRCODE = '23505';
+    END IF;
+
+    IF timezone IS NULL OR NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE pg_timezone_names.name = trim(timezone)) THEN
+        RAISE EXCEPTION 'Invalid Input: Timezone % does not exist in pg_timezone_names', timezone USING ERRCODE = '22023';
+    END IF;
+
+    IF phone IS NOT NULL AND trim(phone) <> '' AND trim(phone) !~ '^\+[1-9][0-9]{7,14}$' THEN
+        RAISE EXCEPTION 'Validation Error: Invalid contact phone number format (E.164 required)' USING ERRCODE = '22023';
+    END IF;
+
+    INSERT INTO public.schools (name, code, timezone, contact_phone)
+    VALUES (trim(name), v_code, trim(timezone), NULLIF(trim(phone), ''))
+    RETURNING id INTO v_school_id;
+
+    INSERT INTO public.audit_log (school_id, performed_by, action, details_json)
+    VALUES (
+        v_school_id,
+        NULL,
+        'CREATE_SCHOOL',
+        jsonb_build_object(
+            'actor_id', v_owner_id,
+            'actor_role', 'owner',
+            'school_id', v_school_id,
+            'name', trim(name),
+            'code', v_code,
+            'timezone', trim(timezone),
+            'contact_phone', NULLIF(trim(phone), '')
+        )
+    );
+
+    RETURN v_school_id;
 END;
 $$;
 
@@ -975,23 +1221,21 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_security FROM anon, authenticated, PUB
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_security FROM anon, authenticated, PUBLIC;
 
 -- 5b. Strict Default Privileges: Prevent automatic grants on new objects
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, PUBLIC;
 
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin') THEN
         BEGIN
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC';
             EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, PUBLIC';
             EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC';
-            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, PUBLIC';
         EXCEPTION WHEN insufficient_privilege THEN
             NULL; -- In hosted Supabase, 'postgres' role lacks privilege to alter default privileges for internal 'supabase_admin' role
         END;
     END IF;
 END $$;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA app_security REVOKE ALL ON FUNCTIONS FROM anon, authenticated, PUBLIC;
 
 -- 5c. Grant schema usage
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
@@ -999,7 +1243,8 @@ GRANT USAGE ON SCHEMA app_security TO authenticated;
 
 -- 5d. Minimal Explicit Table Grants to authenticated
 GRANT SELECT ON public.schools TO authenticated;
-GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
+GRANT UPDATE (full_name, language_pref) ON public.profiles TO authenticated;
 
 -- Managed tables: SELECT, INSERT, UPDATE, DELETE granted to authenticated (RLS restricts to manager)
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.buses TO authenticated;
@@ -1031,6 +1276,7 @@ GRANT EXECUTE ON FUNCTION public.get_school_health_metrics() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.start_trip(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.purge_location_history() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.ingest_location(uuid, double precision, double precision, double precision, double precision, double precision, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_school(text, text, text, text) TO authenticated;
 
 GRANT EXECUTE ON FUNCTION app_security.current_user_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION app_security.current_user_school_id() TO authenticated;
@@ -1042,6 +1288,13 @@ GRANT EXECUTE ON FUNCTION app_security.driver_can_access_stop(uuid) TO authentic
 GRANT EXECUTE ON FUNCTION app_security.parent_can_access_stop(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION app_security.driver_can_access_student_stop(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION app_security.safe_uuid(text) TO authenticated;
+
+-- Explicitly ensure create_alert_event and purge_expired_location_history are service_role/internal only
+REVOKE ALL ON FUNCTION public.create_alert_event(uuid, uuid, uuid, uuid, text, text, jsonb, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_alert_event(uuid, uuid, uuid, uuid, text, text, jsonb, integer) TO service_role;
+
+REVOKE ALL ON FUNCTION app_security.purge_expired_location_history(integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION app_security.purge_expired_location_history(integer, integer) TO service_role;
 
 -- ==============================================================================
 -- SECTION 6: Enable Row Level Security (All Public Tables)
@@ -1656,31 +1909,67 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_tables WHERE schemaname = 'realtime' AND tablename = 'messages'
     ) THEN
-        GRANT USAGE ON SCHEMA realtime TO authenticated;
-        GRANT SELECT ON realtime.messages TO authenticated;
+        BEGIN
+            DROP POLICY IF EXISTS realtime_trip_broadcast_policy ON realtime.messages;
 
-        DROP POLICY IF EXISTS realtime_trip_broadcast_policy ON realtime.messages;
-
-        CREATE POLICY realtime_trip_broadcast_policy ON realtime.messages
-            FOR SELECT TO authenticated
-            USING (
-                extension = 'broadcast'
-                AND app_security.safe_uuid(substring(realtime.topic() FROM 6)) IS NOT NULL
-                AND (
-                    -- Managers of the trip's school
-                    ((SELECT app_security.current_user_role()) = 'manager' AND (
-                        SELECT t.school_id 
-                        FROM public.trips t 
-                        WHERE t.id = app_security.safe_uuid(substring(realtime.topic() FROM 6))
-                    ) = (SELECT app_security.current_user_school_id()))
-                    OR
-                    -- Parents whose child is on this trip
-                    ((SELECT app_security.current_user_role()) = 'parent' AND (
-                        SELECT app_security.parent_has_child_on_trip(app_security.safe_uuid(substring(realtime.topic() FROM 6)))
-                    ))
-                )
-            );
+            CREATE POLICY realtime_trip_broadcast_policy ON realtime.messages
+                FOR SELECT TO authenticated
+                USING (
+                    extension = 'broadcast'
+                    AND realtime.topic() LIKE 'trip:%'
+                    AND app_security.safe_uuid(substring(realtime.topic() FROM 6)) IS NOT NULL
+                    AND (
+                        -- Managers of the trip's school
+                        ((SELECT app_security.current_user_role()) = 'manager' AND (
+                            SELECT t.school_id 
+                            FROM public.trips t 
+                            WHERE t.id = app_security.safe_uuid(substring(realtime.topic() FROM 6))
+                        ) = (SELECT app_security.current_user_school_id()))
+                        OR
+                        -- Parents whose child is on this trip
+                        ((SELECT app_security.current_user_role()) = 'parent' AND (
+                            SELECT app_security.parent_has_child_on_trip(app_security.safe_uuid(substring(realtime.topic() FROM 6)))
+                        ))
+                    )
+                );
+        EXCEPTION
+            WHEN insufficient_privilege THEN
+                RAISE WARNING 'realtime_trip_broadcast_policy could not be created due to insufficient_privilege; skipping.';
+            WHEN OTHERS THEN
+                RAISE WARNING 'realtime_trip_broadcast_policy creation skipped: %', SQLERRM;
+        END;
     END IF;
 END $$;
+
+-- ==============================================================================
+-- SECTION 9: Final Function Privilege Lockdown (Fix 2)
+-- Revoke all function execute privileges from PUBLIC and anon across public and app_security.
+-- Re-grant execute ONLY to authenticated for required RPCs and RLS helpers.
+-- ==============================================================================
+
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA app_security FROM PUBLIC, anon;
+
+-- Explicit grants to authenticated on application RPCs
+GRANT EXECUTE ON FUNCTION public.get_trip_location_history(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_student_absent(uuid, date, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_school_settings(text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_school_health_metrics() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.start_trip(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_location_history() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.ingest_location(uuid, double precision, double precision, double precision, double precision, double precision, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_school(text, text, text, text) TO authenticated;
+
+-- Explicit grants to authenticated on RLS helper functions
+GRANT EXECUTE ON FUNCTION app_security.current_user_role() TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.current_user_school_id() TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.school_today(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.can_cancel_absence(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.driver_is_assigned_to_trip(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.parent_has_child_on_trip(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.driver_can_access_stop(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.parent_can_access_stop(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.driver_can_access_student_stop(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_security.safe_uuid(text) TO authenticated;
 
 COMMIT;
