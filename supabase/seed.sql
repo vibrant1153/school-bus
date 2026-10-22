@@ -66,7 +66,7 @@ BEGIN
     -- 2. Block if any non-synthetic school exists in the database
     IF EXISTS (
         SELECT 1 FROM schools 
-        WHERE code NOT IN ('PAA-01', 'SGCS-02')
+        WHERE code NOT IN ('PAA-01', 'SGC-02', 'SGCS-02')
     ) THEN
         RAISE EXCEPTION 'CRITICAL: seed.sql aborted! Database contains non-synthetic schools. Seeding is strictly forbidden on non-dev databases.';
     END IF;

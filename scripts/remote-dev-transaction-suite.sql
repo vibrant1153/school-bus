@@ -10,17 +10,23 @@
 
 BEGIN;
 
--- 1. Target Environment Guard
+-- 1. Target Environment Guard (Requires app_security.environment marker created by mark-dev-environment.sql)
 DO $$
 DECLARE
-    v_db text;
+    v_has_dev_marker boolean := false;
 BEGIN
-    SELECT current_database() INTO v_db;
-    -- If connected to Supabase remote dev, verify project ref
-    IF v_db NOT LIKE '%debcrfoznffbcwmwporw%' AND v_db NOT IN ('postgres', 'dev') THEN
-        RAISE EXCEPTION 'SAFETY CHECK FAILED: Connected to unexpected database %', v_db;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'app_security' AND table_name = 'environment'
+    ) THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM app_security.environment WHERE name = ''dev'')' INTO v_has_dev_marker;
     END IF;
-    RAISE NOTICE 'Target environment verified: %', v_db;
+
+    IF NOT v_has_dev_marker THEN
+        RAISE EXCEPTION 'SAFETY CHECK FAILED: Target is not verified as development (missing app_security.environment with dev row)'
+            USING ERRCODE = '55000';
+    END IF;
+    RAISE NOTICE 'Target environment verified as dev via app_security.environment marker.';
 END $$;
 
 -- 2. Capture Pre-Test Table Counts for Invariance Assertion
@@ -102,8 +108,9 @@ DECLARE
     v_bad_policies integer;
 BEGIN
     SELECT count(*) INTO v_bad_policies
-    FROM pg_policy
-    WHERE 'public' = ANY(polroles::text[]) OR 'anon' = ANY(polroles::text[]);
+    FROM pg_policy p
+    LEFT JOIN pg_roles r ON r.oid = ANY(p.polroles)
+    WHERE 0 = ANY(p.polroles) OR r.rolname = 'anon';
 
     IF v_bad_policies > 0 THEN
         RAISE EXCEPTION 'CATALOG CHECK FAILED: Found % policies targeting PUBLIC or anon!', v_bad_policies;
@@ -145,5 +152,7 @@ BEGIN
     RAISE NOTICE 'Invariance Check Passed: Row counts perfectly preserved.';
 END $$;
 
-RAISE NOTICE 'All transactional verification checks passed! Rolling back transaction now...';
+DO $$ BEGIN
+    RAISE NOTICE 'All transactional verification checks passed! Rolling back transaction now...';
+END $$;
 ROLLBACK;

@@ -111,11 +111,17 @@ async function run() {
     ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
   `)
 
-  // 5. Apply Migration 3: 20261019000001_rls_policies_and_security.sql
-  console.log('🔒 Applying Step 3 Migration: 20261019000001_rls_policies_and_security.sql...')
+  // 5. Apply Migration 3: 20261019000001_rls_policies_and_security.sql (commit 8a0f35a)
+  console.log('🔒 Applying Step 3 Migration: 20261019000001_rls_policies_and_security.sql (commit 8a0f35a)...')
   const mig3 = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261019000001_rls_policies_and_security.sql'), 'utf8')
   await db.exec(mig3)
-  console.log('✅ Step 3 migration applied successfully!\n')
+  console.log('✅ Step 3 migration (8a0f35a) applied successfully!\n')
+
+  // 5b. Apply Migration 4: 20261020000001_step3_corrections.sql (Upgrade Path)
+  console.log('🛠️  Applying Step 3 Corrections Migration: 20261020000001_step3_corrections.sql...')
+  const mig4 = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261020000001_step3_corrections.sql'), 'utf8')
+  await db.exec(mig4)
+  console.log('✅ Step 3 corrections migration applied successfully!\n')
 
   // 6. Test Data Preservation Post-Migration
   console.log('🔍 Verifying sensitive column data preservation...')
@@ -1141,7 +1147,7 @@ async function run() {
     }
     if (!speedErr) throw new Error('Expected 22023 for speed > 45 m/s')
 
-    // 6a. Freshness window past: ping from 75 seconds ago (> 60s) rejected with 22023
+    // 6a. Freshness window past: ping older than 60 seconds (75s ago) rejected with 22023
     await db.exec('SAVEPOINT sp_gps_fresh_past')
     let freshPastErr = false
     try {
@@ -1152,7 +1158,7 @@ async function run() {
       if (e.message.includes('Timestamp outside freshness window') && e.code === '22023') freshPastErr = true
       await db.exec('ROLLBACK TO sp_gps_fresh_past')
     }
-    if (!freshPastErr) throw new Error('Expected 22023 for timestamp older than 60s')
+    if (!freshPastErr) throw new Error('Expected 22023 for timestamp older than 60 seconds')
 
     // 6b. Freshness window future: ping from 15 seconds in future (> 10s) rejected with 22023
     await db.exec('SAVEPOINT sp_gps_fresh_future')
@@ -1163,7 +1169,7 @@ async function run() {
       ])
     } catch (e) {
       if (e.message.includes('Timestamp outside freshness window') && e.code === '22023') freshFutErr = true
-      await db.exec('ROLLBACK TO sp_gps_fresh_future')
+      await db.exec('ROLLBACK TO sp_gps_future')
     }
     if (!freshFutErr) throw new Error('Expected 22023 for timestamp more than 10s into future')
 
@@ -1183,7 +1189,7 @@ async function run() {
     const locLatest1 = await db.query("SELECT * FROM bus_locations_latest WHERE trip_id = 'd0000000-0001-0000-0000-000000000001'")
     if (locLatest1.rows.length === 0 || locLatest1.rows[0].lat !== 9.0200) throw new Error('ingest_location failed to insert initial latest location')
 
-    // 8. Jitter / Flood test: point arriving 3 seconds after t0 (< 5s minimum interval) is SILENTLY DROPPED
+    // 8. Jitter / Minimum interval test: enforces minimum interval '5 seconds' between stored points
     const tJitter = new Date(t0.getTime() + 3000)
     await db.query('SELECT ingest_location($1, $2, $3, $4, $5, $6, $7)', [
       'd0000000-0001-0000-0000-000000000001', 9.0201, 38.7401, 180.0, 15.0, 8.0, tJitter.toISOString()
