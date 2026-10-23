@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import LanguageSwitch from '../i18n/LanguageSwitch.jsx'
 import { useI18n } from '../i18n/useI18n.js'
+import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../lib/useAuth.js'
 
 // A GPS fix this accurate (in metres) counts as "good". For testing on a
 // computer, whose location is rough, you can raise this number temporarily.
@@ -50,6 +52,7 @@ function Row({ label, ok, text }) {
 
 export default function Driver() {
   const { t } = useI18n()
+  const { user, profile } = useAuth()
   const [phase, setPhase] = useState('ready')
   const [checking, setChecking] = useState(false)
   const [checked, setChecked] = useState(false)
@@ -60,7 +63,66 @@ export default function Driver() {
   const [startedAt, setStartedAt] = useState(0)
   const [fix, setFix] = useState(null)
   const [now, setNow] = useState(0)
+  const [activeTrip, setActiveTrip] = useState(null)
+  const [tripError, setTripError] = useState(null)
+  const [delayStatus, setDelayStatus] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
   const lockRef = useRef(null)
+
+  // Fetch driver's active or scheduled trip for today
+  useEffect(() => {
+    let cancelled = false
+    async function loadDriverTrip() {
+      if (!user) return
+      try {
+        const { data, error } = await supabase
+          .from('trips')
+          .select(`
+            id,
+            school_id,
+            bus_id,
+            route_id,
+            trip_date,
+            direction,
+            status,
+            scheduled_start,
+            started_at,
+            buses (
+              name
+            ),
+            routes (
+              name
+            )
+          `)
+          .in('status', ['scheduled', 'in_progress'])
+          .order('scheduled_start', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+
+        if (error) {
+          console.error('Error fetching driver trip:', error)
+          return
+        }
+
+        if (!cancelled && data) {
+          setActiveTrip(data)
+          if (data.status === 'in_progress' && data.started_at) {
+            setPhase('running')
+            const st = new Date(data.started_at).getTime()
+            setStartedAt(st)
+            setNow(Date.now())
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load driver trip:', err)
+      }
+    }
+
+    loadDriverTrip()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     const up = () => setOnline(true)
@@ -108,22 +170,71 @@ export default function Driver() {
     setChecking(false)
   }
 
-  function startTrip() {
-    const t = Date.now()
-    setStartedAt(t)
-    setNow(t)
-    setFix(null)
-    setPhase('running')
+  async function startTrip() {
+    setSubmitting(true)
+    setTripError(null)
+    try {
+      if (activeTrip?.id) {
+        const { error } = await supabase.rpc('start_trip', { p_trip_id: activeTrip.id })
+        if (error) throw error
+      }
+      const t = Date.now()
+      setStartedAt(t)
+      setNow(t)
+      setFix(null)
+      setPhase('running')
+    } catch (err) {
+      console.error('Failed to start trip:', err)
+      setTripError(err.message || 'Failed to start trip.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function endTrip() {
-    lockRef.current?.release()
-    lockRef.current = null
-    setWake('unknown')
-    setChecked(false)
-    setConfirmEnd(false)
-    setFix(null)
-    setPhase('ready')
+  async function endTrip() {
+    setSubmitting(true)
+    setTripError(null)
+    try {
+      if (activeTrip?.id) {
+        const { error } = await supabase.rpc('end_trip', { p_trip_id: activeTrip.id })
+        if (error) throw error
+      }
+      lockRef.current?.release()
+      lockRef.current = null
+      setWake('unknown')
+      setChecked(false)
+      setConfirmEnd(false)
+      setFix(null)
+      setPhase('ready')
+      setActiveTrip(null)
+    } catch (err) {
+      console.error('Failed to end trip:', err)
+      setTripError(err.message || 'Failed to end trip.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function reportDelay() {
+    if (!activeTrip?.id) return
+    setSubmitting(true)
+    setDelayStatus(null)
+    setTripError(null)
+    try {
+      const { error } = await supabase.rpc('report_delay', {
+        p_trip_id: activeTrip.id,
+        p_delay_minutes: 15,
+        p_reason: 'Traffic congestion',
+      })
+      if (error) throw error
+      setDelayStatus('Delay of 15m reported to school and parents.')
+      setTimeout(() => setDelayStatus(null), 5000)
+    } catch (err) {
+      console.error('Failed to report delay:', err)
+      setTripError(err.message || 'Failed to report delay.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const gpsOk = checked && gps.accuracy !== null && gps.accuracy <= GOOD_ACCURACY_M
@@ -144,7 +255,10 @@ export default function Driver() {
     failed: t('driver.wake.failed'),
     released: t('driver.wake.released'),
   }[wake]
-  const busRoute = `${t('home.bus', { n: 3 })} · ${t('driver.route.morning')}`
+
+  const busRoute = activeTrip
+    ? `${activeTrip.buses?.name || 'Bus'} · ${activeTrip.routes?.name || activeTrip.direction}`
+    : `${t('home.bus', { n: 1 })} · ${t('driver.route.morning')}`
 
   if (phase === 'ready') {
     return (
@@ -157,6 +271,12 @@ export default function Driver() {
           <p className="mt-3 text-sm text-night-muted">{busRoute}</p>
           <h1 className="mt-1 text-3xl font-bold">{t('driver.ready.title')}</h1>
         </div>
+
+        {tripError && (
+          <div className="rounded-xl bg-danger/20 border border-danger p-3 text-sm text-red-200">
+            ⚠️ {tripError}
+          </div>
+        )}
 
         <section className="flex flex-col rounded-2xl bg-night-card px-4 py-2">
           <Row label={t('driver.row.gps')} ok={checked ? gpsOk : null} text={gpsText} />
@@ -171,11 +291,11 @@ export default function Driver() {
           {t('driver.instructions')}
         </p>
 
-        <button type="button" onClick={startTrip} disabled={!allOk} className="mt-auto min-h-18 rounded-2xl bg-amber text-2xl font-extrabold text-ink disabled:opacity-40">
-          {t('driver.start')}
+        <button type="button" onClick={startTrip} disabled={!allOk || submitting} className="mt-auto min-h-18 rounded-2xl bg-amber text-2xl font-extrabold text-ink disabled:opacity-40">
+          {submitting ? 'Starting...' : t('driver.start')}
         </button>
         <p className="text-center text-[13px] text-night-muted">
-          {t('driver.startNote')} Prototype: GPS is read on this phone only, nothing is sent to parents yet.
+          {t('driver.startNote')} Real trips workflow enabled.
         </p>
       </main>
     )
@@ -193,6 +313,18 @@ export default function Driver() {
           <LanguageSwitch dark />
         </div>
       </div>
+
+      {tripError && (
+        <div className="rounded-xl bg-danger/20 border border-danger p-3 text-sm text-red-200">
+          ⚠️ {tripError}
+        </div>
+      )}
+
+      {delayStatus && (
+        <div className="rounded-xl bg-go/20 border border-go p-3 text-sm text-green-200">
+          ✓ {delayStatus}
+        </div>
+      )}
 
       {gpsLost ? (
         <section className="rounded-2xl bg-danger p-5 text-center" role="alert">
@@ -226,16 +358,22 @@ export default function Driver() {
       {confirmEnd ? (
         <section className="mt-auto flex flex-col gap-3 rounded-2xl bg-night-card p-4">
           <p className="text-lg font-bold">{t('driver.endAsk')}</p>
-          <button type="button" onClick={endTrip} className="min-h-14 rounded-2xl bg-danger text-lg font-bold">{t('driver.endYes')}</button>
-          <button type="button" onClick={() => setConfirmEnd(false)} className="min-h-14 rounded-2xl border-2 border-night-muted text-lg font-bold">{t('driver.endNo')}</button>
+          <button type="button" onClick={endTrip} disabled={submitting} className="min-h-14 rounded-2xl bg-danger text-lg font-bold disabled:opacity-50">
+            {submitting ? 'Ending...' : t('driver.endYes')}
+          </button>
+          <button type="button" onClick={() => setConfirmEnd(false)} disabled={submitting} className="min-h-14 rounded-2xl border-2 border-night-muted text-lg font-bold">
+            {t('driver.endNo')}
+          </button>
         </section>
       ) : (
         <div className="mt-auto flex flex-col gap-3">
-          <button type="button" disabled title="Delay reports are built in a later step" className="min-h-15 rounded-2xl border-2 border-amber text-lg font-bold text-amber opacity-50">
-            {t('driver.reportDelay')}
+          <button type="button" onClick={reportDelay} disabled={submitting || !activeTrip?.id} className="min-h-15 rounded-2xl border-2 border-amber text-lg font-bold text-amber hover:bg-amber/10 transition-colors disabled:opacity-40">
+            {submitting ? 'Reporting...' : t('driver.reportDelay')}
           </button>
-          <button type="button" onClick={() => setConfirmEnd(true)} className="min-h-15 rounded-2xl bg-danger text-lg font-bold">{t('driver.end')}</button>
-          <p className="text-center text-[13px] text-night-muted">Prototype: GPS is read on this phone only. Nothing is sent to parents yet.</p>
+          <button type="button" onClick={() => setConfirmEnd(true)} disabled={submitting} className="min-h-15 rounded-2xl bg-danger text-lg font-bold disabled:opacity-50">
+            {t('driver.end')}
+          </button>
+          <p className="text-center text-[13px] text-night-muted">Trip state is tracked on server. GPS upload starts in Step 8.</p>
         </div>
       )}
     </main>
