@@ -169,7 +169,7 @@ export function useManagerData() {
             direction,
             status,
             started_at,
-            completed_at,
+            ended_at,
             buses (
               name
             ),

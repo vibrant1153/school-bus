@@ -243,7 +243,7 @@ export function useParentData() {
             direction,
             status,
             started_at,
-            completed_at,
+            ended_at,
             buses (
               id,
               name
