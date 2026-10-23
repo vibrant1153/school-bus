@@ -1,162 +1,214 @@
 import { useState } from 'react'
 import Chip from './Chip.jsx'
-import { BUSES, ROUTES, STUDENTS, TRIPS, busById, routeById } from './managerData.js'
+import { useManagerData } from '../lib/useManagerData.js'
 
 const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
 function statusChip(trip) {
-  if (trip.problem) return <Chip tone="red">In progress</Chip>
   if (trip.status === 'in_progress') return <Chip tone="green">In progress</Chip>
-  return <Chip>Scheduled {trip.startsAt}</Chip>
+  if (trip.status === 'completed') return <Chip tone="gray">Completed</Chip>
+  if (trip.status === 'cancelled') return <Chip tone="red">Cancelled</Chip>
+  return <Chip>Scheduled</Chip>
 }
 
-
-// PROTOTYPE ONLY: the numbers are sample values and nothing is really deleted.
-// In the real app this calls a protected server function that checks the user is
-// a manager of this school, deletes location history of FINISHED trips from before
-// today (never a trip in progress), and records who did it in the audit log.
-const SAMPLE_PENDING = { records: 2160, trips: 12, oldestDaysAgo: 2 }
-const AUTO_DELETE_DAYS = 3
-
-function LocationHistoryCard() {
-  const [pending, setPending] = useState(SAMPLE_PENDING)
+function LocationHistoryCard({ onPurge }) {
   const [confirming, setConfirming] = useState(false)
-  const [lastDeleted, setLastDeleted] = useState(null)
+  const [purging, setPurging] = useState(false)
+  const [lastPurgedMsg, setLastPurgedMsg] = useState(null)
+  const [purgeError, setPurgeError] = useState(null)
 
-  function deleteNow() {
-    setPending({ records: 0, trips: 0, oldestDaysAgo: 0 })
-    setLastDeleted(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))
-    setConfirming(false)
+  async function handlePurgeNow() {
+    setPurging(true)
+    setPurgeError(null)
+    try {
+      await onPurge()
+      setLastPurgedMsg(`Location history successfully purged at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
+      setConfirming(false)
+    } catch (err) {
+      setPurgeError(err.message || 'Failed to purge location history.')
+    } finally {
+      setPurging(false)
+    }
   }
 
-  const waiting = pending.records > 0
   return (
-    <section className={'rounded-2xl bg-white p-5 ' + (waiting ? 'border-l-[6px] border-amber' : '')}>
-      <h2 className="mb-2 text-lg font-bold">Location history</h2>
-      {waiting ? (
-        <p className="text-[15px] leading-relaxed">
-          <b>{pending.records.toLocaleString('en-GB')} location records</b> from {pending.trips} finished trips (before today) are waiting to be deleted. The oldest is {pending.oldestDaysAgo} days old.
+    <section className="rounded-2xl border-l-[6px] border-amber bg-white p-5 shadow-xs">
+      <h2 className="mb-2 text-lg font-bold text-ink">Location History Retention</h2>
+      <p className="text-[14px] leading-relaxed text-ink">
+        To protect child safety and student privacy, location history of finished trips before today should be purged regularly. Trips in progress today are protected.
+      </p>
+
+      {lastPurgedMsg && (
+        <p className="mt-2 rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
+          ✓ {lastPurgedMsg}
         </p>
-      ) : (
-        <p className="text-[15px] leading-relaxed text-muted">Nothing is waiting. All location history from before today has been deleted.</p>
       )}
-      {lastDeleted && <p className="mt-1 text-[13px] text-muted">Last deleted today at {lastDeleted} by Test Manager.</p>}
+
+      {purgeError && (
+        <p className="mt-2 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+          ✕ {purgeError}
+        </p>
+      )}
 
       {confirming ? (
-        <div className="mt-3 flex flex-col gap-3 rounded-xl bg-[#FFF1F1] p-4" role="alertdialog" aria-label="Confirm deleting location history">
-          <p className="text-[15px] font-bold">Delete location history of finished trips before today?</p>
-          <p className="text-sm leading-relaxed">This cannot be undone. Trips in progress are not touched. Trip summaries (counts and gaps, no locations) are kept.</p>
+        <div
+          className="mt-3 flex flex-col gap-3 rounded-xl bg-red-50 p-4"
+          role="alertdialog"
+          aria-label="Confirm deleting location history"
+        >
+          <p className="text-[14px] font-bold text-red-900">
+            Purge location history of finished trips before today?
+          </p>
+          <p className="text-xs text-red-800 leading-relaxed">
+            This cannot be undone. Active trips today are never touched. Aggregated trip summaries are kept for reporting.
+          </p>
           <div className="flex gap-2.5">
-            <button type="button" onClick={deleteNow} className="min-h-11 rounded-[10px] bg-danger px-4 font-bold text-white">Yes, delete</button>
-            <button type="button" onClick={() => setConfirming(false)} className="min-h-11 rounded-[10px] border border-field bg-white px-4">Cancel</button>
+            <button
+              type="button"
+              disabled={purging}
+              onClick={handlePurgeNow}
+              className="rounded-lg bg-danger px-4 py-2 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {purging ? 'Purging…' : 'Yes, purge now'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       ) : (
-        <button type="button" disabled={!waiting} onClick={() => setConfirming(true)} className="mt-3 min-h-11 rounded-[10px] bg-amber px-4 font-bold disabled:opacity-40">
-          Delete location history
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="mt-3 min-h-11 rounded-xl bg-amber px-4 text-xs font-bold text-ink hover:opacity-95 shadow-xs"
+        >
+          Purge Past Location History
         </button>
       )}
-      <p className="mt-3 text-[13px] leading-relaxed text-muted">
-        Delete it at the end of each school day. As a safety net, anything older than {AUTO_DELETE_DAYS} days is deleted automatically even if nobody presses the button. Each deletion is recorded in the audit log.
+
+      <p className="mt-3 text-[12px] leading-relaxed text-muted">
+        Location history older than 3 days is also automatically removed as a safety net. Each deletion action is recorded in the immutable school audit log.
       </p>
     </section>
   )
 }
 
 export default function Dashboard() {
-  const onRoad = TRIPS.filter((t) => t.status === 'in_progress').length
-  const problems = TRIPS.filter((t) => t.problem)
+  const { todayTrips, metrics, loading, purgeLocationHistory } = useManagerData()
 
-  const health = []
-  const noStop = STUDENTS.filter((s) => s.stopId === null).length
-  if (noStop) health.push(`${noStop} students have no stop`)
-  const noPin = ROUTES.flatMap((r) => r.stops).filter((s) => !s.hasPin).length
-  if (noPin) health.push(`${noPin} stop has no map pin`)
-  ROUTES.forEach((route) => {
-    const bus = BUSES.find((b) => b.routeId === route.id)
-    if (bus && !bus.driver) health.push(`${route.name} has no assigned driver`)
-  })
+  const healthItems = []
+  if (metrics.studentsWithoutStops > 0) {
+    healthItems.push(`${metrics.studentsWithoutStops} student(s) have no stop assigned`)
+  }
+  if (metrics.busesWithoutDrivers > 0) {
+    healthItems.push(`${metrics.busesWithoutDrivers} bus(es) have no active driver assigned`)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber border-t-transparent" />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <header>
-        <h1 className="text-[28px] font-bold">Dashboard</h1>
-        <p className="text-sm text-muted">{today} · sample data</p>
+        <h1 className="text-[28px] font-bold text-ink">Manager Dashboard</h1>
+        <p className="text-sm text-muted">{today} · Operational Overview</p>
       </header>
 
+      {/* Metrics Row */}
       <section className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white p-5">
-          <p className="text-sm text-muted">Trips today</p>
-          <p className="text-[32px] font-extrabold">{TRIPS.length}</p>
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider">Trips Today</p>
+          <p className="mt-2 text-[32px] font-extrabold text-ink">{metrics.totalTrips}</p>
+          <p className="mt-1 text-xs text-muted">Morning and afternoon runs</p>
         </div>
-        <div className="rounded-2xl bg-white p-5">
-          <p className="text-sm text-muted">Buses on the road now</p>
-          <p className="text-[32px] font-extrabold">{onRoad}</p>
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider">Buses on the Road Now</p>
+          <p className="mt-2 text-[32px] font-extrabold text-ink">{metrics.onRoad}</p>
+          <p className="mt-1 text-xs text-emerald-600 font-medium">Currently transmitting GPS</p>
         </div>
-        <div className={'rounded-2xl bg-white p-5 ' + (problems.length ? 'border-2 border-danger' : '')}>
-          <p className="text-sm font-bold text-[#A62B2B]">Needs attention</p>
-          <p className="text-[32px] font-extrabold">{problems.length}</p>
+        <div className={'rounded-2xl border bg-white p-5 shadow-xs ' + (healthItems.length ? 'border-amber-300' : 'border-gray-200')}>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider">Setup Health</p>
+          <p className="mt-2 text-[32px] font-extrabold text-ink">{healthItems.length === 0 ? '✓ OK' : healthItems.length}</p>
+          <p className="mt-1 text-xs text-muted">{healthItems.length === 0 ? 'All rosters & routes configured' : 'Items require attention'}</p>
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <section className="overflow-x-auto rounded-2xl bg-white p-5 xl:col-span-2">
-          <h2 className="mb-2 text-lg font-bold">Today's trips</h2>
-          <table className="w-full min-w-[520px] text-left text-[15px]">
-            <thead className="text-[13px] text-muted">
-              <tr className="border-b border-line">
-                <th scope="col" className="py-2 font-normal">Bus</th>
-                <th scope="col" className="py-2 font-normal">Route</th>
-                <th scope="col" className="py-2 font-normal">Driver</th>
-                <th scope="col" className="py-2 font-normal">Status</th>
-                <th scope="col" className="py-2 font-normal">Last location</th>
-              </tr>
-            </thead>
-            <tbody>
-              {TRIPS.map((trip) => {
-                const bus = busById(trip.busId)
-                const route = routeById(bus.routeId)
-                return (
-                  <tr key={trip.id} className="border-b border-line/40 last:border-0">
-                    <th scope="row" className="py-3 font-bold">{bus.name}</th>
-                    <td>{route.name} {trip.direction.toLowerCase()}</td>
-                    <td className={bus.driver ? '' : 'font-bold text-[#A62B2B]'}>{bus.driver ?? 'No driver'}</td>
-                    <td>{statusChip(trip)}</td>
-                    <td className={trip.problem ? 'font-bold text-[#A62B2B]' : ''}>{trip.lastSeen}</td>
+      <div className="grid gap-6 xl:grid-cols-3">
+        {/* Today's Trips Table */}
+        <section className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-xs xl:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-ink">Today&apos;s Trips</h2>
+            <span className="text-xs text-muted font-medium">{todayTrips.length} total scheduled</span>
+          </div>
+
+          {todayTrips.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted">No trips recorded for today yet.</p>
+          ) : (
+            <table className="w-full min-w-[500px] text-left text-[14px]">
+              <thead className="border-b border-gray-100 text-xs font-semibold text-muted uppercase tracking-wider">
+                <tr>
+                  <th scope="col" className="pb-3 font-medium">Bus</th>
+                  <th scope="col" className="pb-3 font-medium">Route</th>
+                  <th scope="col" className="pb-3 font-medium">Driver</th>
+                  <th scope="col" className="pb-3 font-medium">Status</th>
+                  <th scope="col" className="pb-3 font-medium">Started At</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {todayTrips.map((trip) => (
+                  <tr key={trip.id} className="hover:bg-gray-50/75">
+                    <td className="py-3.5 font-bold text-ink">
+                      Bus {trip.buses?.bus_number || '—'}
+                    </td>
+                    <td className="py-3.5 text-ink">
+                      {trip.routes?.name || 'Route'} ({trip.direction})
+                    </td>
+                    <td className="py-3.5 text-muted">
+                      {trip.profiles?.full_name || 'Assigned Driver'}
+                    </td>
+                    <td className="py-3.5">
+                      {statusChip(trip)}
+                    </td>
+                    <td className="py-3.5 text-xs font-mono text-muted">
+                      {trip.started_at ? new Date(trip.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
 
-        <div className="flex flex-col gap-4">
-          <section className={'rounded-2xl bg-white p-5 ' + (problems.length ? 'border-l-[6px] border-danger' : '')}>
-            <h2 className="mb-2 text-lg font-bold">Needs attention</h2>
-            {problems.length === 0 && <p className="text-[15px] text-muted">Nothing needs attention right now.</p>}
-            {problems.map((trip) => (
-              <div key={trip.id}>
-                <p className="text-[15px] leading-relaxed">
-                  <b>{busById(trip.busId).name}:</b> the driver app has sent no location for {trip.silentMinutes} minutes.
-                </p>
-                <div className="mt-3 flex gap-2.5">
-                  <button type="button" disabled title="Built in a later step" className="min-h-11 rounded-[10px] bg-amber px-4 font-bold opacity-50">Call driver</button>
-                  <button type="button" disabled title="Built in a later step" className="min-h-11 rounded-[10px] border border-field px-4 opacity-50">Report delay</button>
-                </div>
-              </div>
-            ))}
-          </section>
-          <LocationHistoryCard />
-          <section className="rounded-2xl bg-white p-5">
-            <h2 className="mb-2 text-lg font-bold">Setup health</h2>
-            {health.length === 0 && <p className="text-[15px] text-muted">Everything is set up.</p>}
-            <ul className="flex flex-col gap-2 text-[15px]">
-              {health.map((item) => <li key={item}>{item}</li>)}
-            </ul>
+        {/* Right Column: Location History Purge & Setup Health */}
+        <div className="flex flex-col gap-6">
+          <LocationHistoryCard onPurge={purgeLocationHistory} />
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
+            <h2 className="mb-3 text-lg font-bold text-ink">Setup Health Checklist</h2>
+            {healthItems.length === 0 ? (
+              <p className="text-sm text-emerald-700 font-medium">✓ All students and buses are assigned.</p>
+            ) : (
+              <ul className="flex flex-col gap-2.5 text-sm text-ink">
+                {healthItems.map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-xs font-medium text-amber-900 bg-amber-50 rounded-lg p-2.5">
+                    <span>⚠️</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
       </div>
-      <p className="text-[13px] font-semibold text-muted">Prototype: sample data, nothing is really deleted, and no sign-in protects this page yet.</p>
     </div>
   )
 }
