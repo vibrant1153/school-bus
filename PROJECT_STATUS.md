@@ -2,7 +2,7 @@
 
 ## Current Phase
 - **Phase 2/3: Supabase Foundation & Database Integration**
-- **Current Task**: Step 5 - Parent screens on real data (live tracking, child list, absence reporting).
+- **Current Task**: Step 7 completed and verified; paused awaiting approval before Step 8.
 
 ---
 
@@ -75,6 +75,14 @@
 4. 🟢 **Step 4 (Done & Verified)**: Real authentication, account provisioning Edge Function, role guards, and owner dashboard.
 5. 🟢 **Step 5 (Done & Verified)**: Parent screens on real data (live tracking, multi-child support, Haversine distance, 60s staleness detection, radius preference updates, absence reporting & cancellation, alert events feed, and demo preview switcher).
 6. 🟢 **Step 6 (Done & Verified)**: Manager screens on real data (School Office settings & contact phone updating, student roster with add student modal, bus fleet with license plates & add bus modal, setup health, and audited location history purge).
-7. ⚪ **Step 7**: Trips with database-enforced state transitions.
+7. 🟢 **Step 7 (Done & Verified on Remote Dev)**: Trips with database-enforced state transitions:
+   - Migration `20261023000001_step7_trips_workflow.sql` applied to remote project `debcrfoznffbcwmwporw`.
+   - `generate_daily_trips(p_school_id, p_date)` creates morning & afternoon trips idempotently from `route_schedules` using school-local time.
+   - Enforced status lifecycle (`scheduled` -> `in_progress` -> `completed`, and cancellation with mandatory reason from `scheduled` or `in_progress`).
+   - `end_trip` computes trip summaries (`total_pings`, `longest_gap_seconds`, `avg_accuracy_meters` with no raw coordinates).
+   - Rate-limited delay reporting (`report_delay` enforces max 1 per 10 minutes per trip).
+   - Role authorization & security: functions `SECURITY DEFINER`, `search_path = ''`, revoked from `PUBLIC, anon`, granted to `authenticated`, caller identity checked against active profiles.
+   - Driver screen (`/driver`) wired to real Supabase RPCs with hardware readiness indicators and delay modal.
+   - Automated test suite (`scripts/test-trip-workflow.js`) 20/20 passing.
 8. ⚪ **Step 8**: Ingest location function, live map, and stale handling.
 9. ⚪ **Step 9**: Alert triggers, deduplication, in-app feed, and push notifications.
