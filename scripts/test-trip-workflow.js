@@ -530,9 +530,10 @@ async function runTests() {
     // --------------------------------------------------------------------------
     try {
       const tempEmail = `noprofile_${Date.now()}@test.local`
+      const tempPassword = `Sec_${Math.random().toString(36).slice(2)}!Aa9`
       const { data: authUser, error: auErr } = await adminClient.auth.admin.createUser({
         email: tempEmail,
-        password: 'TempPassword123!',
+        password: tempPassword,
         email_confirm: true,
       })
       if (auErr) throw auErr
@@ -543,7 +544,7 @@ async function runTests() {
       const noProfClient = createClient(supabaseUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       })
-      await noProfClient.auth.signInWithPassword({ email: tempEmail, password: 'TempPassword123!' })
+      await noProfClient.auth.signInWithPassword({ email: tempEmail, password: tempPassword })
 
       const { data, error } = await noProfClient.rpc('start_trip', { p_trip_id: otherTripId })
       if (error && (error.code === '42501' || error.message.includes('Inactive or missing profile'))) {
