@@ -18,6 +18,34 @@ export default function OwnerDashboard() {
   const [savingSchool, setSavingSchool] = useState(false)
   const [modalError, setModalError] = useState('')
 
+  // Purge Modal state
+  const [purgeSchool, setPurgeSchool] = useState(null)
+  const [purging, setPurging] = useState(false)
+  const [purgeToast, setPurgeToast] = useState(null)
+  const [purgeError, setPurgeError] = useState('')
+
+  async function handlePurgeLocations() {
+    if (!purgeSchool) return
+    setPurging(true)
+    setPurgeError('')
+    try {
+      const { data, error } = await supabase.rpc('purge_school_location_history', {
+        p_school_id: purgeSchool.id,
+        p_hours: 0,
+      })
+      if (error) throw error
+      const count = data?.deleted_points ?? 0
+      setPurgeToast(`Purged ${count} location point${count === 1 ? '' : 's'} for ${purgeSchool.name}.`)
+      setPurgeSchool(null)
+      setTimeout(() => setPurgeToast(null), 5000)
+    } catch (err) {
+      console.error('Failed to purge school location data:', err)
+      setPurgeError(err.message || 'Failed to purge location data')
+    } finally {
+      setPurging(false)
+    }
+  }
+
   useEffect(() => {
     loadDashboardData()
   }, [])
@@ -115,6 +143,13 @@ export default function OwnerDashboard() {
       </header>
 
       <main className="mx-auto max-w-6xl p-6">
+        {purgeToast && (
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-green-200 bg-green-50 p-3 text-xs font-semibold text-green-800">
+            <span>✓ {purgeToast}</span>
+            <button onClick={() => setPurgeToast(null)} className="text-green-800 hover:opacity-75">✕</button>
+          </div>
+        )}
+
         {/* Page Title & Actions */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -190,6 +225,7 @@ export default function OwnerDashboard() {
                     <th className="px-6 py-3.5">Phone</th>
                     <th className="px-6 py-3.5">Fleet Size</th>
                     <th className="px-6 py-3.5">Students</th>
+                    <th className="px-6 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -207,6 +243,16 @@ export default function OwnerDashboard() {
                         <td className="px-6 py-4 text-xs text-muted">{school.contact_phone || '—'}</td>
                         <td className="px-6 py-4 font-semibold text-ink">{m?.total_buses ?? '—'}</td>
                         <td className="px-6 py-4 font-semibold text-ink">{m?.total_students ?? '—'}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => { setPurgeSchool(school); setPurgeError('') }}
+                            className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-red-100 transition-colors"
+                            title="Delete location tracking data for this school"
+                          >
+                            🗑️ Purge Locations
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -304,6 +350,57 @@ export default function OwnerDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Purge School Location Data Modal */}
+      {purgeSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-ink">Purge School Location Data</h3>
+              <button
+                type="button"
+                onClick={() => setPurgeSchool(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm text-gray-600">
+              Are you sure you want to delete all GPS breadcrumbs and raw location tracking points for <strong className="text-ink">{purgeSchool.name}</strong>?
+            </p>
+
+            <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-800">
+              ⚠️ <strong>Immediate Deletion:</strong> This wipes all raw coordinates for this school from <code className="font-mono text-xs">bus_location_history</code> and resets active bus markers. This action cannot be undone.
+            </div>
+
+            {purgeError && (
+              <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
+                {purgeError}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPurgeSchool(null)}
+                disabled={purging}
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePurgeLocations}
+                disabled={purging}
+                className="rounded-xl bg-danger px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+              >
+                {purging ? 'Purging…' : 'Yes, Delete Location Data'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -296,6 +296,81 @@ BEGIN
 END;
 $$;
 
+-- 4. public.purge_school_location_history (On-demand location purge by Owner or School Manager)
+CREATE OR REPLACE FUNCTION public.purge_school_location_history(
+    p_school_id uuid,
+    p_hours integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_caller_id uuid := (SELECT auth.uid());
+    v_role text := (SELECT app_security.current_user_role());
+    v_deleted_count integer := 0;
+    v_school_name text;
+BEGIN
+    IF v_caller_id IS NULL THEN
+        RAISE EXCEPTION 'Access Denied: Unauthenticated' USING ERRCODE = '42501';
+    END IF;
+
+    IF v_role = 'owner' THEN
+        -- Owner can purge for any school
+        NULL;
+    ELSIF v_role = 'manager' THEN
+        IF p_school_id IS DISTINCT FROM (SELECT app_security.current_user_school_id()) THEN
+            RAISE EXCEPTION 'Cross-tenant violation: Cannot purge data for another school' USING ERRCODE = '42501';
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'Access Denied: Only platform owner or school manager can purge location data' USING ERRCODE = '42501';
+    END IF;
+
+    SELECT name INTO v_school_name FROM public.schools WHERE id = p_school_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'School not found' USING ERRCODE = 'P0002';
+    END IF;
+
+    IF p_hours > 0 THEN
+        DELETE FROM public.bus_location_history
+        WHERE school_id = p_school_id
+          AND recorded_at < (now() - (p_hours || ' hours')::interval);
+    ELSE
+        -- 0 hours means purge all location history for this school immediately
+        DELETE FROM public.bus_location_history
+        WHERE school_id = p_school_id;
+    END IF;
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+
+    -- Reset latest positions for this school's buses
+    UPDATE public.bus_locations_latest
+    SET lat = 0, lng = 0, speed = null, heading = null, accuracy = null
+    WHERE school_id = p_school_id;
+
+    -- Write audit log
+    INSERT INTO public.audit_log (school_id, performed_by, action, details_json)
+    VALUES (
+        p_school_id,
+        v_caller_id,
+        'MANUAL_PURGE_LOCATION_DATA',
+        jsonb_build_object(
+            'school_id', p_school_id,
+            'school_name', v_school_name,
+            'hours_threshold', p_hours,
+            'deleted_points', v_deleted_count,
+            'purged_by_role', v_role
+        )
+    );
+
+    RETURN jsonb_build_object(
+        'status', 'success',
+        'school_id', p_school_id,
+        'deleted_points', v_deleted_count
+    );
+END;
+$$;
+
 -- ==============================================================================
 -- PRIVILEGES & GRANTS
 -- ==============================================================================
@@ -310,3 +385,7 @@ GRANT EXECUTE ON FUNCTION public.generate_daily_trips(uuid, date) TO authenticat
 -- Report delay: callable by authenticated drivers/managers
 REVOKE ALL ON FUNCTION public.report_delay(uuid, integer, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.report_delay(uuid, integer, text) TO authenticated;
+
+-- On-demand purge: callable by authenticated owner/managers
+REVOKE ALL ON FUNCTION public.purge_school_location_history(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.purge_school_location_history(uuid, integer) TO authenticated;
