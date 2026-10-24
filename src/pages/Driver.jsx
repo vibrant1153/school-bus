@@ -66,6 +66,8 @@ export default function Driver() {
   const [activeTrip, setActiveTrip] = useState(null)
   const [tripError, setTripError] = useState(null)
   const [delayStatus, setDelayStatus] = useState(null)
+  const [delayModalOpen, setDelayModalOpen] = useState(false)
+  const [selectedReason, setSelectedReason] = useState('traffic')
   const [submitting, setSubmitting] = useState(false)
   const lockRef = useRef(null)
 
@@ -215,7 +217,7 @@ export default function Driver() {
     }
   }
 
-  async function reportDelay() {
+  async function submitDelay(reason) {
     if (!activeTrip?.id) return
     setSubmitting(true)
     setDelayStatus(null)
@@ -224,10 +226,11 @@ export default function Driver() {
       const { error } = await supabase.rpc('report_delay', {
         p_trip_id: activeTrip.id,
         p_delay_minutes: 15,
-        p_reason: 'Traffic congestion',
+        p_reason: reason,
       })
       if (error) throw error
-      setDelayStatus('Delay of 15m reported to school and parents.')
+      setDelayStatus(`Delay of 15m (${reason}) reported to school and parents.`)
+      setDelayModalOpen(false)
       setTimeout(() => setDelayStatus(null), 5000)
     } catch (err) {
       console.error('Failed to report delay:', err)
@@ -355,7 +358,57 @@ export default function Driver() {
       </div>
       <p className="text-sm text-night-muted">{online ? t('driver.internetOn') : t('driver.internetOff')}</p>
 
-      {confirmEnd ? (
+      {delayModalOpen ? (
+        <section className="mt-auto flex flex-col gap-3 rounded-2xl bg-night-card p-5 border border-night-line">
+          <div className="flex items-center justify-between">
+            <p className="text-lg font-bold text-white">Report Trip Delay (+15 min)</p>
+            <button
+              type="button"
+              onClick={() => setDelayModalOpen(false)}
+              className="text-night-muted hover:text-white text-base px-2 py-1"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-sm text-night-muted">Select reason for delay:</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'traffic', label: '🚦 Traffic' },
+              { id: 'breakdown', label: '🔧 Breakdown' },
+              { id: 'other', label: '⚠️ Other' },
+            ].map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                onClick={() => setSelectedReason(choice.id)}
+                className={`min-h-12 rounded-xl text-sm font-semibold transition-all border ${
+                  selectedReason === choice.id
+                    ? 'bg-amber text-night font-bold border-amber shadow-md'
+                    : 'bg-night border-night-line text-night-muted hover:text-white'
+                }`}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => submitDelay(selectedReason)}
+            disabled={submitting}
+            className="min-h-14 mt-2 rounded-xl bg-amber text-night text-base font-bold shadow-lg disabled:opacity-50"
+          >
+            {submitting ? 'Reporting…' : `Submit Delay (${selectedReason})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setDelayModalOpen(false)}
+            disabled={submitting}
+            className="min-h-12 rounded-xl border border-night-line text-sm text-night-muted hover:text-white"
+          >
+            Cancel
+          </button>
+        </section>
+      ) : confirmEnd ? (
         <section className="mt-auto flex flex-col gap-3 rounded-2xl bg-night-card p-4">
           <p className="text-lg font-bold">{t('driver.endAsk')}</p>
           <button type="button" onClick={endTrip} disabled={submitting} className="min-h-14 rounded-2xl bg-danger text-lg font-bold disabled:opacity-50">
@@ -367,7 +420,7 @@ export default function Driver() {
         </section>
       ) : (
         <div className="mt-auto flex flex-col gap-3">
-          <button type="button" onClick={reportDelay} disabled={submitting || !activeTrip?.id} className="min-h-15 rounded-2xl border-2 border-amber text-lg font-bold text-amber hover:bg-amber/10 transition-colors disabled:opacity-40">
+          <button type="button" onClick={() => setDelayModalOpen(true)} disabled={submitting || !activeTrip?.id} className="min-h-15 rounded-2xl border-2 border-amber text-lg font-bold text-amber hover:bg-amber/10 transition-colors disabled:opacity-40">
             {submitting ? 'Reporting...' : t('driver.reportDelay')}
           </button>
           <button type="button" onClick={() => setConfirmEnd(true)} disabled={submitting} className="min-h-15 rounded-2xl bg-danger text-lg font-bold disabled:opacity-50">
