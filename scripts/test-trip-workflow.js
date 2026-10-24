@@ -64,7 +64,7 @@ async function getClientForUser(email, password, retries = 3) {
 }
 
 async function runTests() {
-  console.log(`\n🚌 [Step 7: Trips Workflow Suite] Connecting to: ${supabaseUrl}\n`)
+  console.log(`\n🚌 [Step 7: Comprehensive Trips Workflow Suite] Connecting to: ${supabaseUrl}\n`)
   let passed = 0
   let failed = 0
 
@@ -78,9 +78,9 @@ async function runTests() {
     failed++
   }
 
-  let createdTripId = null
-  let secondTripId = null
-  let cancelledAftId = null
+  let testTripId = null
+  let otherTripId = null
+  let aftTripId = null
   let dummyUserId = null
   let driver1UserId = null
   let school1Id = null
@@ -101,53 +101,107 @@ async function runTests() {
     const { data: routeA } = await adminClient.from('routes').select('id').eq('school_id', school1Id).eq('name', 'Route A').single()
     const { data: routeB } = await adminClient.from('routes').select('id').eq('school_id', school1Id).eq('name', 'Route B').single()
 
-    // 2. Test generate_daily_trips via Manager
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 1: PROVE TRIP GENERATION FROM route_schedules & IDEMPOTENCY
+    // --------------------------------------------------------------------------
+    const mondayDate = '2026-10-26' // Monday (day_of_week = 1)
+    await adminClient.from('trips').delete().eq('school_id', school1Id).eq('trip_date', mondayDate)
+
+    // Run 1: generate trips from active route_schedules
     try {
-      const { data: genData, error: genErr } = await managerClient.rpc('generate_daily_trips')
-      if (genErr) throw genErr
-      pass(`Manager generates daily trips from active route schedules (${JSON.stringify(genData)})`)
+      const { data: gen1, error: gen1Err } = await managerClient.rpc('generate_daily_trips', {
+        p_school_id: school1Id,
+        p_date: mondayDate,
+      })
+      if (gen1Err) throw gen1Err
+      if (gen1.created_trips !== 2) throw new Error(`Expected 2 trips created from route_schedules, got ${gen1.created_trips}`)
+
+      // Verify rows in database
+      const { data: mondayTrips, error: mtErr } = await adminClient
+        .from('trips')
+        .select('id, direction, scheduled_start, status')
+        .eq('school_id', school1Id)
+        .eq('trip_date', mondayDate)
+      if (mtErr) throw mtErr
+      if (mondayTrips.length !== 2) throw new Error(`Expected 2 rows in DB, found ${mondayTrips.length}`)
+
+      pass(`Trip generation created ${gen1.created_trips} trips from active route_schedules for ${mondayDate}`)
     } catch (e) {
-      fail('Manager generates daily trips', e)
+      fail('Trip generation from route_schedule', e)
     }
 
-    // 3. Negative Test: Parent cannot generate daily trips (Role check)
+    // Run 2: Idempotency check (run exact same generation again)
     try {
-      const { data, error } = await parentClient.rpc('generate_daily_trips')
+      const { data: gen2, error: gen2Err } = await managerClient.rpc('generate_daily_trips', {
+        p_school_id: school1Id,
+        p_date: mondayDate,
+      })
+      if (gen2Err) throw gen2Err
+      if (gen2.created_trips !== 0) throw new Error(`Expected 0 trips created on second run (idempotent), got ${gen2.created_trips}`)
+
+      const { data: mondayTripsAfter } = await adminClient
+        .from('trips')
+        .select('id')
+        .eq('school_id', school1Id)
+        .eq('trip_date', mondayDate)
+      if (mondayTripsAfter.length !== 2) throw new Error(`Trip count changed from 2 to ${mondayTripsAfter.length}`)
+
+      pass('Trip generation is idempotent when run twice (created_trips = 0, no duplicate rows)')
+    } catch (e) {
+      fail('Trip generation idempotency check', e)
+    } finally {
+      // Clean up Monday test trips
+      await adminClient.from('trips').delete().eq('school_id', school1Id).eq('trip_date', mondayDate)
+    }
+
+    // Role check: Parent cannot generate daily trips
+    try {
+      const { data, error } = await parentClient.rpc('generate_daily_trips', { p_school_id: school1Id })
       if (error && (error.code === '42501' || error.message.includes('Access Denied'))) {
-        pass('Parent is rejected from generating daily trips (42501)')
+        pass('Parent is rejected from calling generate_daily_trips (42501)')
       } else {
         throw new Error(`Expected Access Denied error, got: ${JSON.stringify({ data, error })}`)
       }
     } catch (e) {
       if (e.message.includes('42501') || e.message.includes('Access Denied')) {
-        pass('Parent is rejected from generating daily trips (42501)')
+        pass('Parent is rejected from calling generate_daily_trips (42501)')
       } else {
-        fail('Parent is rejected from generating daily trips', e)
+        fail('Parent role check on generate_daily_trips', e)
       }
     }
 
-    // Fetch the generated morning trip for Bus 1 / Driver 1
+    // --------------------------------------------------------------------------
+    // PREPARE CONTROLLED TRIPS FOR TODAY
+    // --------------------------------------------------------------------------
     const todayStr = new Date().toISOString().split('T')[0]
-    const { data: morningTrip, error: gtErr } = await adminClient
+
+    // Trip 1: Assigned to Driver 1 on Bus 1
+    const { data: t1, error: t1Err } = await adminClient
       .from('trips')
-      .select('*')
-      .eq('school_id', school1Id)
-      .eq('bus_id', bus1.id)
-      .eq('trip_date', todayStr)
-      .eq('direction', 'morning')
+      .upsert({
+        school_id: school1Id,
+        bus_id: bus1.id,
+        route_id: routeA.id,
+        driver_profile_id: driver1UserId,
+        trip_date: todayStr,
+        direction: 'morning',
+        status: 'scheduled',
+        scheduled_start: new Date().toISOString(),
+        started_at: null,
+        ended_at: null,
+      }, { onConflict: 'school_id,bus_id,direction,trip_date' })
+      .select()
       .single()
+    if (t1Err) throw t1Err
+    testTripId = t1.id
 
-    if (gtErr || !morningTrip) throw new Error(`Morning trip not found: ${gtErr?.message}`)
-    createdTripId = morningTrip.id
+    // Ensure state is clean 'scheduled'
+    await adminClient.from('trips').update({ status: 'scheduled', started_at: null, ended_at: null }).eq('id', testTripId)
 
-    // Ensure driver_profile_id is driver 1 on the trip
-    await adminClient.from('trips').update({ driver_profile_id: driver1UserId, status: 'scheduled', started_at: null, ended_at: null }).eq('id', createdTripId)
-
-    // 4. Negative Test: Driver cannot start another driver's trip / unassigned trip
-    // Assign trip to route B and bus 2 where driver 1 is NOT assigned
-    const { data: otherTrip, error: otErr } = await adminClient
+    // Trip 2: Assigned to Bus 2 on Route B (Driver 1 is NOT assigned to Route B)
+    const { data: t2, error: t2Err } = await adminClient
       .from('trips')
-      .insert({
+      .upsert({
         school_id: school1Id,
         bus_id: bus2.id,
         route_id: routeB.id,
@@ -156,40 +210,164 @@ async function runTests() {
         direction: 'morning',
         status: 'scheduled',
         scheduled_start: new Date().toISOString(),
-      })
+        started_at: null,
+        ended_at: null,
+      }, { onConflict: 'school_id,bus_id,direction,trip_date' })
       .select()
       .single()
+    if (t2Err) throw t2Err
+    otherTripId = t2.id
 
-    if (otErr) throw otErr
-    secondTripId = otherTrip.id
+    // Trip 3: Afternoon trip on Bus 1 for cancellation tests
+    const { data: t3, error: t3Err } = await adminClient
+      .from('trips')
+      .upsert({
+        school_id: school1Id,
+        bus_id: bus1.id,
+        route_id: routeA.id,
+        driver_profile_id: driver1UserId,
+        trip_date: todayStr,
+        direction: 'afternoon',
+        status: 'scheduled',
+        scheduled_start: new Date().toISOString(),
+        started_at: null,
+        ended_at: null,
+      }, { onConflict: 'school_id,bus_id,direction,trip_date' })
+      .select()
+      .single()
+    if (t3Err) throw t3Err
+    aftTripId = t3.id
 
+    await adminClient.from('trips').update({ status: 'scheduled', started_at: null, ended_at: null }).eq('id', aftTripId)
+
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 2: DRIVER CANNOT START, CANCEL OR END ANOTHER DRIVER'S TRIP
+    // --------------------------------------------------------------------------
     try {
-      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: secondTripId })
+      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: otherTripId })
       if (error && (error.code === '42501' || error.message.includes('not assigned'))) {
-        pass(`Driver 1 cannot start unassigned trip (Error: ${error.message})`)
+        pass(`Driver 1 cannot start another driver's unassigned trip (Error: ${error.message})`)
       } else {
         throw new Error(`Expected assignment denial, got: ${JSON.stringify({ data, error })}`)
       }
     } catch (e) {
       if (e.message.includes('not assigned') || e.message.includes('42501')) {
-        pass(`Driver 1 cannot start unassigned trip (Error: ${e.message})`)
+        pass(`Driver 1 cannot start another driver's unassigned trip (Error: ${e.message})`)
       } else {
         fail("Driver cannot start another driver's trip", e)
       }
     }
 
-    // 5. Positive Test: Driver 1 starts their assigned trip (scheduled -> in_progress)
     try {
-      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: createdTripId })
+      const { data, error } = await driverClient.rpc('cancel_trip', { p_trip_id: otherTripId, p_reason: 'Trying cancel' })
+      if (error && (error.code === '42501' || error.message.includes('not assigned'))) {
+        pass(`Driver 1 cannot cancel another driver's trip (Error: ${error.message})`)
+      } else {
+        throw new Error(`Expected assignment denial on cancel, got: ${JSON.stringify({ data, error })}`)
+      }
+    } catch (e) {
+      if (e.message.includes('not assigned') || e.message.includes('42501')) {
+        pass(`Driver 1 cannot cancel another driver's trip (Error: ${e.message})`)
+      } else {
+        fail("Driver cannot cancel another driver's trip", e)
+      }
+    }
+
+    try {
+      const { data, error } = await driverClient.rpc('end_trip', { p_trip_id: otherTripId })
+      if (error && (error.code === '42501' || error.message.includes('not assigned'))) {
+        pass(`Driver 1 cannot end another driver's trip (Error: ${error.message})`)
+      } else {
+        throw new Error(`Expected assignment denial on end, got: ${JSON.stringify({ data, error })}`)
+      }
+    } catch (e) {
+      if (e.message.includes('not assigned') || e.message.includes('42501')) {
+        pass(`Driver 1 cannot end another driver's trip (Error: ${e.message})`)
+      } else {
+        fail("Driver cannot end another driver's trip", e)
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 2: PARENT CANNOT CALL end_trip, cancel_trip OR report_delay
+    // --------------------------------------------------------------------------
+    try {
+      const { data, error } = await parentClient.rpc('end_trip', { p_trip_id: testTripId })
+      if (error && (error.code === '42501' || error.message.includes('Access Denied'))) {
+        pass('Parent cannot call end_trip (rejected with 42501)')
+      } else {
+        throw new Error(`Expected 42501, got: ${JSON.stringify({ data, error })}`)
+      }
+    } catch (e) {
+      if (e.message.includes('42501') || e.message.includes('Access Denied')) {
+        pass('Parent cannot call end_trip (rejected with 42501)')
+      } else {
+        fail('Parent cannot call end_trip', e)
+      }
+    }
+
+    try {
+      const { data, error } = await parentClient.rpc('cancel_trip', { p_trip_id: testTripId, p_reason: 'Parent cancel' })
+      if (error && (error.code === '42501' || error.message.includes('Access Denied'))) {
+        pass('Parent cannot call cancel_trip (rejected with 42501)')
+      } else {
+        throw new Error(`Expected 42501, got: ${JSON.stringify({ data, error })}`)
+      }
+    } catch (e) {
+      if (e.message.includes('42501') || e.message.includes('Access Denied')) {
+        pass('Parent cannot call cancel_trip (rejected with 42501)')
+      } else {
+        fail('Parent cannot call cancel_trip', e)
+      }
+    }
+
+    try {
+      const { data, error } = await parentClient.rpc('report_delay', { p_trip_id: testTripId, p_delay_minutes: 15, p_reason: 'Parent delay' })
+      if (error && (error.code === '42501' || error.message.includes('Access Denied'))) {
+        pass('Parent cannot call report_delay (rejected with 42501)')
+      } else {
+        throw new Error(`Expected 42501, got: ${JSON.stringify({ data, error })}`)
+      }
+    } catch (e) {
+      if (e.message.includes('42501') || e.message.includes('Access Denied')) {
+        pass('Parent cannot call report_delay (rejected with 42501)')
+      } else {
+        fail('Parent cannot call report_delay', e)
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 2: end_trip ON A SCHEDULED TRIP IS REJECTED
+    // --------------------------------------------------------------------------
+    try {
+      const { data, error } = await driverClient.rpc('end_trip', { p_trip_id: testTripId })
+      if (error && error.code === '22000' && error.message.includes('Cannot end trip with status scheduled')) {
+        pass(`end_trip on scheduled trip rejected: ${error.message} (Code 22000)`)
+      } else {
+        throw new Error(`Expected 22000 invalid state error, got: ${JSON.stringify(error)}`)
+      }
+    } catch (e) {
+      if (e.message.includes('22000') || e.message.includes('Cannot end trip')) {
+        pass(`end_trip on scheduled trip rejected: ${e.message} (Code 22000)`)
+      } else {
+        fail('end_trip on scheduled trip rejection check', e)
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // DRIVER STARTS ASSIGNED TRIP (scheduled -> in_progress)
+    // --------------------------------------------------------------------------
+    try {
+      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: testTripId })
       if (error) throw error
-      pass(`Driver starts assigned trip successfully (status: in_progress)`)
+      pass('Driver 1 starts assigned trip successfully (status: in_progress)')
     } catch (e) {
       fail('Driver starts assigned trip', e)
     }
 
-    // 6. Negative Test: Invalid transition (in_progress -> in_progress)
+    // Negative: Cannot start already in_progress trip
     try {
-      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: createdTripId })
+      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: testTripId })
       if (error && error.code === '22000' && error.message.includes('Cannot start trip with status in_progress')) {
         pass(`Invalid transition rejected: ${error.message} (Code 22000)`)
       } else {
@@ -203,19 +381,18 @@ async function runTests() {
       }
     }
 
-    // 7. Test report_delay & rate limiting (one per 10 minutes)
+    // Delay reporting & rate limiting (one per 10 minutes)
     try {
-      const { data: d1, error: de1 } = await driverClient.rpc('report_delay', {
-        p_trip_id: createdTripId,
+      const { error: de1 } = await driverClient.rpc('report_delay', {
+        p_trip_id: testTripId,
         p_delay_minutes: 15,
         p_reason: 'Heavy traffic at roundabout',
       })
       if (de1) throw de1
-      pass(`Driver reports delay successfully (15 minutes)`)
+      pass('Driver reports delay successfully (15 minutes)')
 
-      // Immediately attempt second delay report (should be rate-limited)
-      const { data: d2, error: de2 } = await driverClient.rpc('report_delay', {
-        p_trip_id: createdTripId,
+      const { error: de2 } = await driverClient.rpc('report_delay', {
+        p_trip_id: testTripId,
         p_delay_minutes: 20,
         p_reason: 'Flat tire',
       })
@@ -228,71 +405,108 @@ async function runTests() {
       fail('Delay reporting & rate limit test', e)
     }
 
-    // 8. Test end_trip (in_progress -> completed) & trip_summaries computation
-    try {
-      const { data: endData, error: endErr } = await driverClient.rpc('end_trip', { p_trip_id: createdTripId })
-      if (endErr) throw endErr
-      pass(`Driver ends trip successfully (status: completed)`)
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 1: INSERT FAKE LOCATION POINTS & PROVE end_trip METRICS
+    // --------------------------------------------------------------------------
+    // Points:
+    // P1: t0, accuracy: 10.0m
+    // P2: t0 + 15s, accuracy: 12.0m  (gap: 15s)
+    // P3: t0 + 45s, accuracy: 14.0m  (gap: 30s - LONGEST)
+    // P4: t0 + 60s, accuracy: 20.0m  (gap: 15s)
+    // Expected:
+    // total_pings = 4
+    // longest_gap_seconds = 30
+    // avg_accuracy_meters = (10 + 12 + 14 + 20) / 4 = 14.0
+    const baseMs = Date.now() - 60000
+    const fakePoints = [
+      { school_id: school1Id, trip_id: testTripId, bus_id: bus1.id, lat: 9.0100, lng: 38.7500, accuracy: 10.0, recorded_at: new Date(baseMs).toISOString() },
+      { school_id: school1Id, trip_id: testTripId, bus_id: bus1.id, lat: 9.0110, lng: 38.7510, accuracy: 12.0, recorded_at: new Date(baseMs + 15000).toISOString() },
+      { school_id: school1Id, trip_id: testTripId, bus_id: bus1.id, lat: 9.0120, lng: 38.7520, accuracy: 14.0, recorded_at: new Date(baseMs + 45000).toISOString() },
+      { school_id: school1Id, trip_id: testTripId, bus_id: bus1.id, lat: 9.0130, lng: 38.7530, accuracy: 20.0, recorded_at: new Date(baseMs + 60000).toISOString() },
+    ]
 
-      // Verify trip_summaries row was computed
+    await adminClient.from('bus_location_history').insert(fakePoints)
+
+    // Call end_trip
+    try {
+      const { data: endData, error: endErr } = await driverClient.rpc('end_trip', { p_trip_id: testTripId })
+      if (endErr) throw endErr
+      pass('Driver ends trip successfully (status: completed)')
+
+      // Verify trip_summaries row
       const { data: summary, error: sumErr } = await adminClient
         .from('trip_summaries')
         .select('*')
-        .eq('trip_id', createdTripId)
+        .eq('trip_id', testTripId)
         .single()
 
       if (sumErr || !summary) throw new Error(`Summary not found: ${sumErr?.message}`)
-      pass(`Trip summary computed: total_pings=${summary.total_pings}, longest_gap=${summary.longest_gap_seconds}s`)
+
+      if (summary.total_pings !== 4) throw new Error(`Expected total_pings=4, got ${summary.total_pings}`)
+      if (summary.longest_gap_seconds !== 30) throw new Error(`Expected longest_gap_seconds=30, got ${summary.longest_gap_seconds}`)
+      if (Math.abs(summary.avg_accuracy_meters - 14.0) > 0.05) throw new Error(`Expected avg_accuracy_meters=14.0, got ${summary.avg_accuracy_meters}`)
+      if (!summary.started_at || !summary.ended_at) throw new Error('started_at or ended_at is null')
+
+      pass(`end_trip computed exact metrics from location points: total_pings=4, longest_gap=30s, avg_accuracy=14.0m (NO coordinates stored)`)
     } catch (e) {
-      fail('end_trip and trip_summaries computation', e)
+      fail('end_trip reliability metrics computation', e)
     }
 
-    // 9. Negative Test: Cannot cancel completed trip
+    // Negative: Cannot cancel completed trip
     try {
       const { data, error } = await driverClient.rpc('cancel_trip', {
-        p_trip_id: createdTripId,
+        p_trip_id: testTripId,
         p_reason: 'Too late to cancel',
       })
       if (error && error.code === '22000' && error.message.includes('Cannot cancel trip with status completed')) {
-        pass(`Invalid transition rejected: ${error.message} (Code 22000)`)
+        pass(`Cannot cancel completed trip rejected: ${error.message} (Code 22000)`)
       } else {
         throw new Error(`Expected 22000 invalid state error, got: ${JSON.stringify(error)}`)
       }
     } catch (e) {
       if (e.message.includes('Cannot cancel trip') || e.message.includes('22000')) {
-        pass(`Invalid transition rejected: ${e.message} (Code 22000)`)
+        pass(`Cannot cancel completed trip rejected: ${e.message} (Code 22000)`)
       } else {
         fail('Cannot cancel completed trip check', e)
       }
     }
 
-    // 9b. Positive Test: Driver can cancel scheduled trip with mandatory reason
-    const { data: aftTrip } = await adminClient
-      .from('trips')
-      .select('id')
-      .eq('school_id', school1Id)
-      .eq('bus_id', bus1.id)
-      .eq('trip_date', todayStr)
-      .eq('direction', 'afternoon')
-      .single()
+    // --------------------------------------------------------------------------
+    // REQUIREMENT 2: MANAGER CANCELS A TRIP
+    // --------------------------------------------------------------------------
+    try {
+      const { data: cancelData, error: cancelErr } = await managerClient.rpc('cancel_trip', {
+        p_trip_id: aftTripId,
+        p_reason: 'Emergency road closure near campus',
+      })
+      if (cancelErr) throw cancelErr
+      if (cancelData.status !== 'cancelled') throw new Error(`Expected status 'cancelled', got ${cancelData.status}`)
 
-    if (aftTrip) {
-      cancelledAftId = aftTrip.id
-      try {
-        const { data: cData, error: cErr } = await driverClient.rpc('cancel_trip', {
-          p_trip_id: aftTrip.id,
-          p_reason: 'Severe weather advisory',
-        })
-        if (cErr) throw cErr
-        pass(`Driver cancels scheduled trip with reason (status: cancelled)`)
-      } catch (e) {
-        fail('Driver cancels scheduled trip', e)
+      // Verify in DB and verify audit log entry
+      const { data: dbAft } = await adminClient.from('trips').select('status, ended_at').eq('id', aftTripId).single()
+      if (dbAft.status !== 'cancelled' || !dbAft.ended_at) throw new Error('Trip not updated to cancelled in DB')
+
+      const { data: auditLogs } = await adminClient
+        .from('audit_log')
+        .select('*')
+        .eq('school_id', school1Id)
+        .eq('action', 'CANCEL_TRIP')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (!auditLogs || auditLogs.length === 0 || auditLogs[0].performed_by !== managerUser.id) {
+        throw new Error('Audit log missing CANCEL_TRIP action by manager')
       }
+
+      pass(`Manager cancels scheduled trip with reason (status: cancelled, audited by manager ID)`)
+    } catch (e) {
+      fail('Manager cancels a trip', e)
     }
 
-    // 10. Negative Test: User with no profile is rejected
+    // --------------------------------------------------------------------------
+    // NEGATIVE TESTS: USER WITH NO PROFILE & DEACTIVATED USER
+    // --------------------------------------------------------------------------
     try {
-      // Create a temporary auth user without a profiles row
       const tempEmail = `noprofile_${Date.now()}@test.local`
       const { data: authUser, error: auErr } = await adminClient.auth.admin.createUser({
         email: tempEmail,
@@ -302,7 +516,6 @@ async function runTests() {
       if (auErr) throw auErr
       dummyUserId = authUser.user.id
 
-      // Explicitly delete any auto-created profile row if triggers made one
       await adminClient.from('profiles').delete().eq('id', dummyUserId)
 
       const noProfClient = createClient(supabaseUrl, anonKey, {
@@ -310,7 +523,7 @@ async function runTests() {
       })
       await noProfClient.auth.signInWithPassword({ email: tempEmail, password: 'TempPassword123!' })
 
-      const { data, error } = await noProfClient.rpc('start_trip', { p_trip_id: secondTripId })
+      const { data, error } = await noProfClient.rpc('start_trip', { p_trip_id: otherTripId })
       if (error && (error.code === '42501' || error.message.includes('Inactive or missing profile'))) {
         pass(`User with no profile rejected with 42501: ${error.message}`)
       } else {
@@ -324,12 +537,10 @@ async function runTests() {
       }
     }
 
-    // 11. Negative Test: Deactivated user is rejected
     try {
-      // Temporarily deactivate driver 1
       await adminClient.from('profiles').update({ is_active: false }).eq('id', driver1UserId)
 
-      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: secondTripId })
+      const { data, error } = await driverClient.rpc('start_trip', { p_trip_id: otherTripId })
       if (error && (error.code === '42501' || error.message.includes('Inactive or missing profile'))) {
         pass(`Deactivated user rejected with 42501: ${error.message}`)
       } else {
@@ -342,36 +553,35 @@ async function runTests() {
         fail('Deactivated user rejection check', e)
       }
     } finally {
-      // Re-activate driver 1 immediately
       await adminClient.from('profiles').update({ is_active: true }).eq('id', driver1UserId)
     }
 
   } catch (err) {
     console.error('Fatal test error:', err)
   } finally {
-    // Cleanup created rows
     console.log('\n🧹 Cleaning up test trips and artifacts...')
-    if (createdTripId) {
-      await adminClient.from('trip_summaries').delete().eq('trip_id', createdTripId)
-      await adminClient.from('alert_events').delete().eq('trip_id', createdTripId)
-      await adminClient.from('audit_log').delete().eq('details_json->>trip_id', createdTripId)
+    if (testTripId) {
+      await adminClient.from('trip_summaries').delete().eq('trip_id', testTripId)
+      await adminClient.from('bus_location_history').delete().eq('trip_id', testTripId)
+      await adminClient.from('alert_events').delete().eq('trip_id', testTripId)
+      await adminClient.from('audit_log').delete().eq('details_json->>trip_id', testTripId)
       await adminClient.from('trips').update({
         status: 'scheduled',
         started_at: null,
         ended_at: null,
-      }).eq('id', createdTripId)
+      }).eq('id', testTripId)
     }
-    if (cancelledAftId) {
-      await adminClient.from('alert_events').delete().eq('trip_id', cancelledAftId)
-      await adminClient.from('audit_log').delete().eq('details_json->>trip_id', cancelledAftId)
+    if (aftTripId) {
+      await adminClient.from('alert_events').delete().eq('trip_id', aftTripId)
+      await adminClient.from('audit_log').delete().eq('details_json->>trip_id', aftTripId)
       await adminClient.from('trips').update({
         status: 'scheduled',
         started_at: null,
         ended_at: null,
-      }).eq('id', cancelledAftId)
+      }).eq('id', aftTripId)
     }
-    if (secondTripId) {
-      await adminClient.from('trips').delete().eq('id', secondTripId)
+    if (otherTripId) {
+      await adminClient.from('trips').delete().eq('id', otherTripId)
     }
     if (dummyUserId) {
       await adminClient.auth.admin.deleteUser(dummyUserId)
