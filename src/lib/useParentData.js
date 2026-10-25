@@ -222,17 +222,65 @@ export function useParentData() {
 
   const selectedChild = children.find((c) => c.id === selectedChildId) || children[0] || null
 
-  // 2. Fetch active trip and bus location (polled every 12s)
+  // 2. Fetch active trip, load bus_locations_latest, and subscribe privately to trip:<id>
+  // Handled according to Step 8b rules:
+  // - Loads bus_locations_latest first
+  // - Subscribes privately to trip:<id> only while screen is visible
+  // - Unsubscribes on hide/unmount
+  // - On socket failure or error, falls back to polling bus_locations_latest every 15s
   useEffect(() => {
     let ignore = false
+    let currentChannel = null
+    let pollInterval = null
 
-    async function fetchTripAndLocation() {
+    async function loadLatestLocation(busId) {
+      if (!busId) return
+      try {
+        const { data: locData, error: locErr } = await supabase
+          .from('bus_locations_latest')
+          .select('*')
+          .eq('bus_id', busId)
+          .maybeSingle()
+
+        if (!ignore && !locErr && locData) {
+          setLatestBusLocation(locData)
+        }
+      } catch (err) {
+        console.warn('Could not fetch bus_locations_latest:', err.message)
+      }
+    }
+
+    function startPollingFallback(busId) {
+      if (pollInterval) return
+      pollInterval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadLatestLocation(busId)
+        }
+      }, 15000)
+    }
+
+    function stopPollingFallback() {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
+    }
+
+    function teardownChannel() {
+      if (currentChannel) {
+        supabase.removeChannel(currentChannel)
+        currentChannel = null
+      }
+    }
+
+    async function setupRealtimeAndLocation() {
       if (!isSupabaseConfigured || !user || !selectedChild) return
 
       try {
         const routeId = selectedChild.morningStop?.routeId || selectedChild.afternoonStop?.routeId
         if (!routeId) return
 
+        // 1. Check for in-progress trip
         const { data: trips, error: tripErr } = await supabase
           .from('trips')
           .select(`
@@ -257,37 +305,84 @@ export function useParentData() {
 
         const inProgressTrip = trips?.find((t) => t.status === 'in_progress') || null
 
-        if (!ignore) {
-          setActiveTrip(inProgressTrip)
-        }
+        if (ignore) return
+        setActiveTrip(inProgressTrip)
 
-        if (inProgressTrip && inProgressTrip.bus_id) {
-          const { data: locData, error: locErr } = await supabase
-            .from('bus_locations_latest')
-            .select('*')
-            .eq('bus_id', inProgressTrip.bus_id)
-            .maybeSingle()
-
-          if (!ignore) {
-            if (!locErr && locData) {
-              setLatestBusLocation(locData)
-            } else {
-              setLatestBusLocation(null)
-            }
-          }
-        } else if (!ignore) {
+        if (!inProgressTrip || !inProgressTrip.bus_id) {
           setLatestBusLocation(null)
+          teardownChannel()
+          stopPollingFallback()
+          return
         }
+
+        // 2. Load bus_locations_latest first
+        await loadLatestLocation(inProgressTrip.bus_id)
+
+        // 3. Setup private Realtime channel only if screen is visible
+        if (document.visibilityState !== 'visible') {
+          return
+        }
+
+        teardownChannel()
+        const topic = `trip:${inProgressTrip.id}`
+        const channel = supabase.channel(topic, {
+          config: { private: true },
+        })
+
+        channel
+          .on('broadcast', { event: 'location' }, (msg) => {
+            if (ignore) return
+            const p = msg.payload
+            if (!p) return
+
+            // Compact payload: { lat, lng, spd, acc, t }
+            setLatestBusLocation((prev) => ({
+              ...prev,
+              bus_id: inProgressTrip.bus_id,
+              trip_id: inProgressTrip.id,
+              lat: p.lat,
+              lng: p.lng,
+              speed: p.spd ?? 0,
+              accuracy: p.acc ?? 10,
+              recorded_at: p.t ? new Date(p.t).toISOString() : new Date().toISOString(),
+            }))
+          })
+          .subscribe((status, err) => {
+            if (ignore) return
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.warn(`[Realtime ParentMap] Socket status: ${status}, activating 15s polling fallback`, err || '')
+              startPollingFallback(inProgressTrip.bus_id)
+            } else if (status === 'SUBSCRIBED') {
+              // Socket is healthy, stop polling fallback
+              stopPollingFallback()
+            }
+          })
+
+        currentChannel = channel
       } catch (err) {
-        console.warn('Could not refresh trip/location:', err.message)
+        console.warn('Error setting up parent trip/location telemetry:', err.message)
       }
     }
 
-    fetchTripAndLocation()
-    const interval = setInterval(fetchTripAndLocation, 12000)
+    setupRealtimeAndLocation()
+
+    // Visibility listener: subscribe only while screen visible, unsubscribe on hide
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setupRealtimeAndLocation()
+      } else {
+        teardownChannel()
+        stopPollingFallback()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       ignore = true
-      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      teardownChannel()
+      stopPollingFallback()
     }
   }, [user, selectedChild])
 
