@@ -137,6 +137,10 @@ export default function Driver() {
     }
   }, [])
 
+  const [lastUpload, setLastUpload] = useState({ time: null, accuracy: null, error: null, status: null })
+  const latestGpsPointRef = useRef(null)
+  const lastSentTimestampRef = useRef(null)
+
   // While a trip is running: read GPS continuously, tick a clock, and ask for
   // the screen-awake lock again if the browser released it.
   useEffect(() => {
@@ -144,6 +148,15 @@ export default function Driver() {
     const tick = setInterval(() => setNow(Date.now()), 1000)
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        const point = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          speed: pos.coords.speed !== null && !isNaN(pos.coords.speed) ? pos.coords.speed : 0,
+          heading: pos.coords.heading !== null && !isNaN(pos.coords.heading) ? pos.coords.heading : null,
+          accuracy: pos.coords.accuracy,
+          timestamp: pos.timestamp || Date.now(),
+        }
+        latestGpsPointRef.current = point
         setFix({ accuracy: pos.coords.accuracy, at: Date.now() })
         setGps((g) => ({ ...g, error: null }))
       },
@@ -162,6 +175,69 @@ export default function Driver() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [phase])
+
+  // Step 8b Telemetry Loop: Upload newest GPS point every 12s through ingest_location
+  // After an outage or network pause, sends ONLY the newest point; never replays old points.
+  useEffect(() => {
+    if (phase !== 'running' || !activeTrip?.id) return undefined
+
+    async function sendLatestPoint() {
+      const pt = latestGpsPointRef.current
+      if (!pt) return
+
+      const ageMs = Math.max(0, Date.now() - pt.timestamp)
+      if (ageMs > 30000) {
+        setLastUpload((prev) => ({
+          ...prev,
+          error: 'GPS point is older than 30s; waiting for fresh satellite signal.',
+        }))
+        return
+      }
+
+      // Do not replay already transmitted point timestamps
+      if (lastSentTimestampRef.current && pt.timestamp <= lastSentTimestampRef.current) {
+        return
+      }
+
+      try {
+        const { data, error } = await supabase.rpc('ingest_location', {
+          p_trip_id: activeTrip.id,
+          p_lat: pt.lat,
+          p_lng: pt.lng,
+          p_heading: pt.heading,
+          p_speed: pt.speed,
+          p_accuracy: pt.accuracy,
+          p_age_ms: Math.round(ageMs),
+        })
+
+        if (error) throw error
+
+        lastSentTimestampRef.current = pt.timestamp
+        setLastUpload({
+          time: Date.now(),
+          accuracy: pt.accuracy,
+          error: null,
+          status: data?.status || 'accepted',
+        })
+      } catch (err) {
+        console.error('Ingest location telemetry error:', err)
+        // Failure or outage: do not buffer! Next 12s tick sends ONLY the newest point.
+        setLastUpload((prev) => ({
+          ...prev,
+          error: err.message || 'Telemetry transmission failed',
+        }))
+      }
+    }
+
+    // Initial transmission attempt once GPS fix arrives, then strictly every 12 seconds
+    const initialTimer = setTimeout(sendLatestPoint, 2000)
+    const intervalId = setInterval(sendLatestPoint, 12000)
+
+    return () => {
+      clearTimeout(initialTimer)
+      clearInterval(intervalId)
+    }
+  }, [phase, activeTrip?.id])
 
   async function runChecks() {
     setChecking(true)
@@ -356,7 +432,37 @@ export default function Driver() {
           <p className="text-2xl font-extrabold">{wake === 'on' ? t('driver.screen.on') : t('driver.screen.off')}</p>
         </div>
       </div>
-      <p className="text-sm text-night-muted">{online ? t('driver.internetOn') : t('driver.internetOff')}</p>
+      <div className="flex justify-between items-center text-sm text-night-muted">
+        <p>{online ? t('driver.internetOn') : t('driver.internetOff')}</p>
+        <p>{online ? '📡 Network Ready' : '⚠️ Offline'}</p>
+      </div>
+
+      {/* Live Telemetry Status (Step 8b): Last sent time, accuracy, and errors */}
+      <section className="flex flex-col gap-1 rounded-[14px] bg-night-card p-3.5 border border-night-line">
+        <div className="flex justify-between items-center text-xs text-night-muted">
+          <span>GPS Telemetry (12s cycle)</span>
+          <span className={lastUpload.error ? 'text-amber-400 font-bold' : lastUpload.time ? 'text-go font-bold' : 'text-night-muted'}>
+            {lastUpload.error ? '⚠️ Upload Alert' : lastUpload.time ? '● Live' : 'Waiting fix…'}
+          </span>
+        </div>
+        <div className="flex justify-between items-baseline mt-1">
+          <span className="text-sm text-white">
+            {lastUpload.time
+              ? `Last sent ${Math.max(0, Math.floor((now - lastUpload.time) / 1000))}s ago`
+              : 'No telemetry sent yet'}
+          </span>
+          {lastUpload.accuracy !== null && (
+            <span className="text-xs text-night-muted">
+              Accuracy: {Math.round(lastUpload.accuracy)}m
+            </span>
+          )}
+        </div>
+        {lastUpload.error && (
+          <p className="mt-1 text-xs text-red-300 bg-red-950/40 p-2 rounded-lg border border-red-800/50">
+            ⚠️ {lastUpload.error}
+          </p>
+        )}
+      </section>
 
       {delayModalOpen ? (
         <section className="mt-auto flex flex-col gap-3 rounded-2xl bg-night-card p-5 border border-night-line">
