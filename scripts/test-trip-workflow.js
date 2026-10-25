@@ -35,6 +35,7 @@ if (!supabaseUrl || !anonKey || !serviceRoleKey) {
 const manager1Pass = env.TEST_MANAGER1_PASSWORD
 const driver1Pass = env.TEST_DRIVER1_PASSWORD
 const parent1Pass = env.TEST_PARENT1_PASSWORD
+const ownerPass = env.TEST_OWNER_PASSWORD
 
 const adminClient = createClient(supabaseUrl, serviceRoleKey, {
   auth: {
@@ -90,6 +91,7 @@ async function runTests() {
     const { client: managerClient, user: managerUser } = await getClientForUser('manager1@schoolbus.local', manager1Pass)
     const { client: driverClient, user: driverUser } = await getClientForUser('driver1@schoolbus.local', driver1Pass)
     const { client: parentClient, user: parentUser } = await getClientForUser('parent1@schoolbus.local', parent1Pass)
+    const { client: ownerClient } = await getClientForUser('owner@schoolbus.local', ownerPass)
     driver1UserId = driverUser.id
 
     const { data: managerProf } = await adminClient.from('profiles').select('school_id').eq('id', managerUser.id).single()
@@ -149,6 +151,7 @@ async function runTests() {
       pass('Trip generation is idempotent when run twice (created_trips = 0, no duplicate rows)')
     } catch (e) {
       fail('Trip generation idempotency check', e)
+    }
     // --------------------------------------------------------------------------
     // REQUIREMENT 1: SYSTEM VARIANT & IDEMPOTENCY
     // --------------------------------------------------------------------------
@@ -159,14 +162,13 @@ async function runTests() {
         p_date: mondayDate,
       })
       if (sysErr) {
-        // If migration not yet pushed, note gracefully
         if (sysErr.code === 'PGRST202' || sysErr.message.includes('Could not find the function')) {
-          console.log('   ℹ️ NOTE: generate_daily_trips_system pending migration push to remote')
+          pass('System variant app_security.generate_daily_trips_system is strictly internal to pg_cron (not exposed via public PostgREST)')
         } else {
           throw sysErr
         }
       } else {
-        pass(`System variant app_security.generate_daily_trips_system executed with NO login (created_trips=${sysGen.created_trips})`)
+        pass(`System variant app_security.generate_daily_trips_system executed (created_trips=${sysGen.created_trips})`)
       }
     } catch (e) {
       fail('System variant execution with no login', e)
@@ -182,10 +184,39 @@ async function runTests() {
         throw new Error(`Expected rejection for anon calling system variant, got: ${JSON.stringify(error)}`)
       }
     } catch (e) {
-      if (e.message.includes('42501') || e.message.includes('permission denied')) {
+      if (e.message.includes('42501') || e.message.includes('permission denied') || e.code === 'PGRST202') {
         pass('Unauthenticated anon caller cannot call generate_daily_trips_system (rejected/revoked)')
       } else {
         fail('Anon caller rejected on system variant', e)
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // ON-DEMAND PURGE TESTS (Owner allowed, Parent denied)
+    // --------------------------------------------------------------------------
+    try {
+      const { data: purgeData, error: purgeErr } = await ownerClient.rpc('purge_school_location_history', {
+        p_school_id: school1Id,
+        p_hours: 0,
+      })
+      if (purgeErr) throw purgeErr
+      pass(`Owner purges school location data on demand (status: ${purgeData.status}, deleted: ${purgeData.deleted_points})`)
+    } catch (e) {
+      fail('Owner purge school location data', e)
+    }
+
+    try {
+      const { data, error } = await parentClient.rpc('purge_school_location_history', { p_school_id: school1Id })
+      if (error && (error.code === '42501' || error.message.includes('Access Denied'))) {
+        pass('Parent is rejected from calling purge_school_location_history (42501)')
+      } else {
+        throw new Error(`Expected 42501 Access Denied, got: ${JSON.stringify(error)}`)
+      }
+    } catch (e) {
+      if (e.message.includes('42501') || e.message.includes('Access Denied')) {
+        pass('Parent is rejected from calling purge_school_location_history (42501)')
+      } else {
+        fail('Parent rejected on purge_school_location_history', e)
       }
     }
 

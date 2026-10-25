@@ -352,14 +352,15 @@ BEGIN
     INSERT INTO public.audit_log (school_id, performed_by, action, details_json)
     VALUES (
         p_school_id,
-        v_caller_id,
+        CASE WHEN v_role = 'owner' THEN NULL ELSE v_caller_id END,
         'MANUAL_PURGE_LOCATION_DATA',
         jsonb_build_object(
+            'actor_id', v_caller_id,
+            'actor_role', v_role,
             'school_id', p_school_id,
             'school_name', v_school_name,
             'hours_threshold', p_hours,
-            'deleted_points', v_deleted_count,
-            'purged_by_role', v_role
+            'deleted_points', v_deleted_count
         )
     );
 
