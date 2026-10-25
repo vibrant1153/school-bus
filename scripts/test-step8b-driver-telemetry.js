@@ -64,22 +64,42 @@ async function runStep8bTests() {
   try {
     // 1. Locate Route A Trip for driver1 in School 1
     console.log('🔍 Identifying active or scheduled trip for driver1 on Route A...')
-    const { data: tripData, error: tripErr } = await adminClient
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    let { data: tripData, error: tripErr } = await adminClient
       .from('trips')
       .select('id, trip_date, direction, status, bus_id, route_id, driver_profile_id, routes!inner(name)')
       .eq('school_id', school1Id)
       .eq('routes.name', 'Route A')
+      .eq('trip_date', todayStr)
       .in('status', ['scheduled', 'in_progress'])
-      .order('trip_date', { ascending: false })
       .limit(1)
 
-    if (tripErr || !tripData || tripData.length === 0) {
-      throw new Error(`Failed to find Route A trip for driver1: ${tripErr?.message}`)
+    if (!tripData || tripData.length === 0) {
+      const { data: fallbackTrips, error: fbErr } = await adminClient
+        .from('trips')
+        .select('id, trip_date, direction, status, bus_id, route_id, driver_profile_id, routes!inner(name)')
+        .eq('school_id', school1Id)
+        .eq('routes.name', 'Route A')
+        .in('status', ['scheduled', 'in_progress'])
+        .order('trip_date', { ascending: false })
+        .limit(1)
+
+      if (fbErr || !fallbackTrips || fallbackTrips.length === 0) {
+        throw new Error(`Failed to find Route A trip for driver1: ${fbErr?.message || tripErr?.message}`)
+      }
+      tripData = fallbackTrips
+      await adminClient.from('trips').update({ trip_date: todayStr }).eq('id', tripData[0].id)
+      tripData[0].trip_date = todayStr
     }
 
     const trip = tripData[0]
     testTripId = trip.id
     console.log(`   ✅ Target trip: ${testTripId} (${trip.trip_date} ${trip.direction}, status: ${trip.status})`)
+
+    // Clear prior bus_locations for this trip so test points start fresh
+    await adminClient.from('bus_locations').delete().eq('trip_id', testTripId)
+    await adminClient.from('bus_locations_latest').delete().eq('trip_id', testTripId)
 
     // Authenticate driver1
     const { client: driverClient, user: driverUser } = await getClientForUser('driver1@schoolbus.local', driver1Pass)
