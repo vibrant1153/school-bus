@@ -31,14 +31,16 @@ export default function ParentMap() {
 
   const stale = busStatus.mode === 'stale'
   const noTrip = busStatus.mode === 'none'
-  const age = noTrip ? '' : describeAge(busStatus.secondsAgo ?? 0, t)
+  const isWaiting = busStatus.mode === 'waiting'
+  const noBus = noTrip || isWaiting || !busPosition
+  const age = noTrip || isWaiting ? '' : describeAge(busStatus.secondsAgo ?? 0, t)
   const distance = formatDistance(busDistanceM, t)
 
-  // Map center: prefer bus if active, otherwise child stop
-  const mapCenter = !noTrip && busPosition ? busPosition : stopPosition
+  // Map center: prefer bus if active and location available, otherwise child stop
+  const mapCenter = !noBus && busPosition ? busPosition : stopPosition
 
   // Route positions: if active bus and stop available, render connection line, or fallback
-  const mapRoute = !noTrip && busPosition ? [busPosition, stopPosition] : FALLBACK_ROUTE
+  const mapRoute = !noBus && busPosition ? [busPosition, stopPosition] : FALLBACK_ROUTE
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-md flex-col">
@@ -58,7 +60,7 @@ export default function ParentMap() {
           {/* Route path */}
           <Polyline
             positions={mapRoute}
-            pathOptions={{ color: '#F5B301', weight: 5, dashArray: noTrip ? undefined : '6 6' }}
+            pathOptions={{ color: '#F5B301', weight: 5, dashArray: noBus ? undefined : '6 6' }}
           />
 
           {/* Child Stop Alert Radius Circle (200m / 500m / 1000m) */}
@@ -79,8 +81,8 @@ export default function ParentMap() {
             </Tooltip>
           </CircleMarker>
 
-          {/* Live / Stale Bus Marker: never shown when no trip is running */}
-          {!noTrip && busPosition && (
+          {/* Live / Stale Bus Marker: never shown when no trip is running or no point for this trip */}
+          {!noBus && busPosition && (
             <CircleMarker
               center={busPosition}
               radius={12}
@@ -114,7 +116,9 @@ export default function ParentMap() {
               (busStatus.mode === 'live' ? 'text-live' : 'text-muted')
             }
           >
-            {noTrip
+            {isWaiting
+              ? '● WAITING FOR BUS GPS'
+              : noTrip
               ? t('home.none.badge')
               : stale
               ? `● ${t('home.lastSeen', { age }).toUpperCase()}`
@@ -125,10 +129,14 @@ export default function ParentMap() {
 
       {/* Bottom Sheet */}
       <section className="flex flex-col gap-3 rounded-t-[20px] bg-white p-5 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
-        {noTrip ? (
+        {noBus ? (
           <>
-            <p className="text-[26px] leading-tight font-extrabold text-ink">{t('map.noTrip.title')}</p>
-            <p className="text-[15px] text-muted">{t('map.noTrip.body')}</p>
+            <p className="text-[26px] leading-tight font-extrabold text-ink">
+              {isWaiting ? 'Trip in Progress' : t('map.noTrip.title')}
+            </p>
+            <p className="text-[15px] text-muted">
+              {isWaiting ? 'Waiting for the first location update from the bus...' : t('map.noTrip.body')}
+            </p>
           </>
         ) : (
           <>

@@ -233,8 +233,11 @@ export function useParentData() {
     let currentChannel = null
     let pollInterval = null
 
-    async function loadLatestLocation(busId) {
-      if (!busId) return
+    async function loadLatestLocation(busId, currentTripId) {
+      if (!busId || !currentTripId) {
+        setLatestBusLocation(null)
+        return
+      }
       try {
         const { data: locData, error: locErr } = await supabase
           .from('bus_locations_latest')
@@ -242,19 +245,25 @@ export function useParentData() {
           .eq('bus_id', busId)
           .maybeSingle()
 
-        if (!ignore && !locErr && locData) {
-          setLatestBusLocation(locData)
+        if (!ignore && !locErr) {
+          // Rule: only use a bus_locations_latest row whose trip_id equals the current trip
+          // Show no bus until the first point of this trip
+          if (locData && locData.trip_id === currentTripId) {
+            setLatestBusLocation(locData)
+          } else {
+            setLatestBusLocation(null)
+          }
         }
       } catch (err) {
         console.warn('Could not fetch bus_locations_latest:', err.message)
       }
     }
 
-    function startPollingFallback(busId) {
+    function startPollingFallback(busId, currentTripId) {
       if (pollInterval) return
       pollInterval = setInterval(() => {
         if (document.visibilityState === 'visible') {
-          loadLatestLocation(busId)
+          loadLatestLocation(busId, currentTripId)
         }
       }, 15000)
     }
@@ -315,8 +324,8 @@ export function useParentData() {
           return
         }
 
-        // 2. Load bus_locations_latest first
-        await loadLatestLocation(inProgressTrip.bus_id)
+        // 2. Load bus_locations_latest first (filtered strictly to this trip_id)
+        await loadLatestLocation(inProgressTrip.bus_id, inProgressTrip.id)
 
         // 3. Setup private Realtime channel only if screen is visible
         if (document.visibilityState !== 'visible') {
@@ -336,8 +345,7 @@ export function useParentData() {
             if (!p) return
 
             // Compact payload: { lat, lng, spd, acc, t }
-            setLatestBusLocation((prev) => ({
-              ...prev,
+            setLatestBusLocation({
               bus_id: inProgressTrip.bus_id,
               trip_id: inProgressTrip.id,
               lat: p.lat,
@@ -345,13 +353,13 @@ export function useParentData() {
               speed: p.spd ?? 0,
               accuracy: p.acc ?? 10,
               recorded_at: p.t ? new Date(p.t).toISOString() : new Date().toISOString(),
-            }))
+            })
           })
           .subscribe((status, err) => {
             if (ignore) return
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
               console.warn(`[Realtime ParentMap] Socket status: ${status}, activating 15s polling fallback`, err || '')
-              startPollingFallback(inProgressTrip.bus_id)
+              startPollingFallback(inProgressTrip.bus_id, inProgressTrip.id)
             } else if (status === 'SUBSCRIBED') {
               // Socket is healthy, stop polling fallback
               stopPollingFallback()
@@ -573,7 +581,7 @@ export function useParentData() {
   let busDistanceM = 0
   let busPosition = null
 
-  if (activeTrip && latestBusLocation) {
+  if (activeTrip && latestBusLocation && latestBusLocation.trip_id === activeTrip.id) {
     const recordedAt = new Date(latestBusLocation.recorded_at).getTime()
     const secondsAgo = Math.max(0, Math.floor((now - recordedAt) / 1000))
     const isStale = secondsAgo >= 60
@@ -584,6 +592,11 @@ export function useParentData() {
       mode: isStale ? 'stale' : 'live',
       secondsAgo,
     }
+  } else if (activeTrip) {
+    // Trip is in progress, but no point for this trip has arrived yet: show no bus
+    busStatus = { mode: 'waiting', secondsAgo: null }
+    busDistanceM = 0
+    busPosition = null
   } else if (!isLiveBackend) {
     busStatus = prototypeBusStatus('live')
     busDistanceM = 1000
