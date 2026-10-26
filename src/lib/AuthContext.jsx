@@ -70,20 +70,24 @@ export function AuthProvider({ children }) {
         setAuthError('Profile not found. Contact administrator.')
         setProfile(null)
         setRole(null)
+        return null
       } else if (!data.is_active) {
         // Enforce active lifecycle invariant: deactivated profiles cannot maintain an active session
         await supabase.auth.signOut()
         setAuthError('Your account has been deactivated. Please contact your school administrator.')
         setProfile(null)
         setRole(null)
+        return null
       } else {
         setProfile(data)
         setRole(data.role)
         setAuthError(null)
+        return data
       }
     } catch (err) {
       console.error('Error fetching profile:', err)
       setAuthError('Network error retrieving profile.')
+      return null
     } finally {
       setLoading(false)
     }
@@ -114,11 +118,17 @@ export function AuthProvider({ children }) {
       return { success: false, error: error.message }
     }
 
+    let loadedProfile = null
     if (data.user) {
-      await fetchProfile(data.user.id)
+      loadedProfile = await fetchProfile(data.user.id)
     }
 
-    return { success: true, user: data.user }
+    return {
+      success: true,
+      user: data.user,
+      role: loadedProfile?.role || null,
+      profile: loadedProfile,
+    }
   }
 
   async function signOut() {

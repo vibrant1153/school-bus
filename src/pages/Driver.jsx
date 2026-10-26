@@ -69,6 +69,19 @@ export default function Driver() {
   const [delayModalOpen, setDelayModalOpen] = useState(false)
   const [selectedReason, setSelectedReason] = useState('traffic')
   const [submitting, setSubmitting] = useState(false)
+  const [allowComputerLocation, setAllowComputerLocationState] = useState(() => {
+    try {
+      return localStorage.getItem('schoolbus.allowComputerLocation') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const setAllowComputerLocation = (val) => {
+    try {
+      localStorage.setItem('schoolbus.allowComputerLocation', val ? 'true' : 'false')
+    } catch {}
+    setAllowComputerLocationState(val)
+  }
   const lockRef = useRef(null)
 
   // Fetch driver's active or scheduled trip for today
@@ -77,6 +90,48 @@ export default function Driver() {
     async function loadDriverTrip() {
       if (!user) return
       try {
+        const todayStr = new Date().toISOString().split('T')[0]
+
+        // 1. Check if an active in-progress trip exists on the bus
+        const { data: activeTrips } = await supabase
+          .from('trips')
+          .select(`
+            id,
+            school_id,
+            bus_id,
+            route_id,
+            trip_date,
+            direction,
+            status,
+            scheduled_start,
+            started_at,
+            buses ( name ),
+            routes ( name )
+          `)
+          .eq('status', 'in_progress')
+          .order('started_at', { ascending: false })
+          .limit(1)
+
+        if (activeTrips && activeTrips.length > 0) {
+          const active = activeTrips[0]
+          if (active.trip_date === todayStr) {
+            // Today's trip is already in progress: resume it directly
+            if (!cancelled) {
+              setActiveTrip(active)
+              setPhase('running')
+              const st = new Date(active.started_at).getTime()
+              setStartedAt(st)
+              setNow(Date.now())
+            }
+            return
+          } else if (active.trip_date < todayStr) {
+            // Stale unended trip from a previous day: auto-complete it to clear the bus lock
+            console.warn(`Auto-completing stale trip ${active.id} from ${active.trip_date}`)
+            await supabase.rpc('end_trip', { p_trip_id: active.id })
+          }
+        }
+
+        // 2. Load today's trip
         const { data, error } = await supabase
           .from('trips')
           .select(`
@@ -97,6 +152,7 @@ export default function Driver() {
             )
           `)
           .in('status', ['scheduled', 'in_progress'])
+          .eq('trip_date', todayStr)
           .order('scheduled_start', { ascending: true })
           .limit(1)
           .maybeSingle()
@@ -106,9 +162,9 @@ export default function Driver() {
           return
         }
 
-        if (!cancelled && data) {
-          setActiveTrip(data)
-          if (data.status === 'in_progress' && data.started_at) {
+        if (!cancelled) {
+          setActiveTrip(data || null)
+          if (data && data.status === 'in_progress' && data.started_at) {
             setPhase('running')
             const st = new Date(data.started_at).getTime()
             setStartedAt(st)
@@ -185,6 +241,12 @@ export default function Driver() {
       const pt = latestGpsPointRef.current
       if (!pt) return
 
+      const isComputer = allowComputerLocation || (pt.accuracy !== null && pt.accuracy > GOOD_ACCURACY_M)
+      if (isComputer) {
+        pt.timestamp = Date.now()
+        setFix((prev) => (prev ? { ...prev, at: Date.now() } : { accuracy: pt.accuracy, at: Date.now() }))
+      }
+
       const ageMs = Math.max(0, Date.now() - pt.timestamp)
       if (ageMs > 30000) {
         setLastUpload((prev) => ({
@@ -194,8 +256,8 @@ export default function Driver() {
         return
       }
 
-      // Do not replay already transmitted point timestamps
-      if (lastSentTimestampRef.current && pt.timestamp <= lastSentTimestampRef.current) {
+      // Do not replay already transmitted point timestamps (unless in computer mode where we pulse live points)
+      if (!isComputer && lastSentTimestampRef.current && pt.timestamp <= lastSentTimestampRef.current) {
         return
       }
 
@@ -254,7 +316,28 @@ export default function Driver() {
     try {
       if (activeTrip?.id) {
         const { error } = await supabase.rpc('start_trip', { p_trip_id: activeTrip.id })
-        if (error) throw error
+        if (error) {
+          // If conflict occurred with another active trip on this bus
+          if (error.message?.includes('idx_trips_one_active_per_bus')) {
+            console.warn('Resolving active trip conflict on bus...')
+            const { data: conflicts } = await supabase
+              .from('trips')
+              .select('id, trip_date')
+              .eq('bus_id', activeTrip.bus_id)
+              .eq('status', 'in_progress')
+            if (conflicts && conflicts.length > 0) {
+              for (const c of conflicts) {
+                await supabase.rpc('end_trip', { p_trip_id: c.id })
+              }
+              const { error: retryErr } = await supabase.rpc('start_trip', { p_trip_id: activeTrip.id })
+              if (retryErr) throw retryErr
+            } else {
+              throw error
+            }
+          } else {
+            throw error
+          }
+        }
       }
       const t = Date.now()
       setStartedAt(t)
@@ -263,7 +346,10 @@ export default function Driver() {
       setPhase('running')
     } catch (err) {
       console.error('Failed to start trip:', err)
-      setTripError(err.message || 'Failed to start trip.')
+      const userMsg = err.message?.includes('idx_trips_one_active_per_bus')
+        ? 'Another trip is already marked active on this bus. Please end the previous trip first.'
+        : err.message || 'Failed to start trip.'
+      setTripError(userMsg)
     } finally {
       setSubmitting(false)
     }
@@ -316,7 +402,8 @@ export default function Driver() {
     }
   }
 
-  const gpsOk = checked && gps.accuracy !== null && gps.accuracy <= GOOD_ACCURACY_M
+  const rawGpsGood = gps.accuracy !== null && gps.accuracy <= GOOD_ACCURACY_M
+  const gpsOk = checked && gps.accuracy !== null && (rawGpsGood || allowComputerLocation)
   const allOk = gpsOk && wake === 'on' && online
 
   const accText = (n) => `${Math.round(n)} ${t('unit.m')}`
@@ -324,7 +411,8 @@ export default function Driver() {
   if (checked) {
     if (gps.error === 'denied') gpsText = t('driver.gpsBlocked')
     else if (gps.error) gpsText = t('driver.gpsNone')
-    else if (gpsOk) gpsText = t('driver.gpsGood', { acc: accText(gps.accuracy) })
+    else if (rawGpsGood) gpsText = t('driver.gpsGood', { acc: accText(gps.accuracy) })
+    else if (allowComputerLocation) gpsText = `Testing OK (±${Math.round(gps.accuracy)}m)`
     else gpsText = t('driver.gpsWeak', { acc: accText(gps.accuracy) })
   }
   const wakeText = {
@@ -363,6 +451,25 @@ export default function Driver() {
           <Row label={t('driver.row.internet')} ok={online} text={online ? t('driver.online') : t('driver.offline')} />
         </section>
 
+        {checked && !rawGpsGood && gps.accuracy !== null && !allowComputerLocation && (
+          <div className="rounded-xl border border-amber/40 bg-amber/10 p-3.5 text-xs">
+            <div className="flex items-center gap-2 font-bold text-amber-300">
+              <span>💻</span>
+              <span>Testing on a computer?</span>
+            </div>
+            <p className="mt-1 leading-relaxed text-gray-300">
+              Laptops & PCs don't have satellite GPS chips, so Wi-Fi location gives ±{Math.round(gps.accuracy)}m (production requires ≤50m). Real phones mounted on buses achieve ±5-15m.
+            </p>
+            <button
+              type="button"
+              onClick={() => setAllowComputerLocation(true)}
+              className="mt-2.5 w-full rounded-lg bg-amber px-3 py-2 text-center text-xs font-bold text-ink hover:opacity-90"
+            >
+              ✓ Allow for Computer Testing (Enable Start)
+            </button>
+          </div>
+        )}
+
         <button type="button" onClick={runChecks} disabled={checking} className="min-h-14 rounded-2xl border-2 border-night-muted text-lg font-bold disabled:opacity-60">
           {checking ? t('driver.checking') : checked ? t('driver.checkAgain') : t('driver.check')}
         </button>
@@ -381,7 +488,10 @@ export default function Driver() {
   }
 
   const secondsSinceFix = fix ? Math.floor((now - fix.at) / 1000) : Math.floor((now - startedAt) / 1000)
-  const gpsLost = secondsSinceFix > GPS_STALE_SECONDS || gps.error !== null
+  const isComputerTesting = allowComputerLocation || (fix && fix.accuracy > GOOD_ACCURACY_M)
+  const gpsLost = isComputerTesting
+    ? gps.error !== null
+    : secondsSinceFix > GPS_STALE_SECONDS || gps.error !== null
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-5 bg-night p-6 text-white">

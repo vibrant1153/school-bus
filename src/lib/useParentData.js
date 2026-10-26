@@ -11,16 +11,25 @@ import {
 // Fallback sample child for offline / unauthenticated preview
 const SAMPLE_CHILD = {
   id: '00000000-0000-0000-0000-000000000001',
-  fullName: 'Abel (Sample Child)',
+  fullName: 'Student A (Sample Child)',
   grade: 3,
-  busNumber: 3,
-  stopName: 'Stop 4 - Bole Rwanda',
-  stopPosition: [51.518, -0.113],
+  busNumber: 1,
+  stopName: 'Clinic Junction',
+  morningStop: {
+    id: 'st-a4',
+    name: 'Clinic Junction',
+    lat: 9.0290,
+    lng: 38.7590,
+    time: '07:15',
+    routeId: 'e55f2fdf-7eb9-4d56-8a70-bb1186a61d1b',
+    routeName: 'Route A',
+  },
+  stopPosition: [9.0290, 38.7590],
   morningPickupTime: '07:15',
   afternoonDropoffTime: '15:45',
   alertRadiusM: 500,
-  schoolName: 'Hilltop International Academy',
-  schoolPhone: '+251911223344',
+  schoolName: 'Pilot Academy Addis',
+  schoolPhone: '+251-11-000-0001',
 }
 
 export function useParentData() {
@@ -232,6 +241,7 @@ export function useParentData() {
     let ignore = false
     let currentChannel = null
     let pollInterval = null
+    let tripPollTimer = null
 
     async function loadLatestLocation(busId, currentTripId) {
       if (!busId || !currentTripId) {
@@ -289,8 +299,8 @@ export function useParentData() {
         const routeId = selectedChild.morningStop?.routeId || selectedChild.afternoonStop?.routeId
         if (!routeId) return
 
-        // 1. Check for in-progress trip
-        const { data: trips, error: tripErr } = await supabase
+        // 1. Check for in-progress trip directly by status to avoid nulls-first sorting bugs
+        const { data: inProgTrips, error: tripErr } = await supabase
           .from('trips')
           .select(`
             id,
@@ -307,12 +317,13 @@ export function useParentData() {
             )
           `)
           .eq('route_id', routeId)
-          .order('started_at', { ascending: false })
-          .limit(3)
+          .eq('status', 'in_progress')
+          .order('started_at', { ascending: false, nullsFirst: false })
+          .limit(1)
 
         if (tripErr) throw tripErr
 
-        const inProgressTrip = trips?.find((t) => t.status === 'in_progress') || null
+        const inProgressTrip = inProgTrips?.[0] || null
 
         if (ignore) return
         setActiveTrip(inProgressTrip)
@@ -321,7 +332,21 @@ export function useParentData() {
           setLatestBusLocation(null)
           teardownChannel()
           stopPollingFallback()
+          // Poll every 10 seconds while page is open so when trip starts, parent connects automatically
+          if (!tripPollTimer) {
+            tripPollTimer = setTimeout(() => {
+              tripPollTimer = null
+              if (!ignore && document.visibilityState === 'visible') {
+                setupRealtimeAndLocation()
+              }
+            }, 10000)
+          }
           return
+        }
+
+        if (tripPollTimer) {
+          clearTimeout(tripPollTimer)
+          tripPollTimer = null
         }
 
         // 2. Load bus_locations_latest first (filtered strictly to this trip_id)
@@ -388,6 +413,10 @@ export function useParentData() {
 
     return () => {
       ignore = true
+      if (tripPollTimer) {
+        clearTimeout(tripPollTimer)
+        tripPollTimer = null
+      }
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       teardownChannel()
       stopPollingFallback()
@@ -575,7 +604,7 @@ export function useParentData() {
   // Telemetry calculation using pure clock state `now`
   const childStopPos = selectedChild?.morningStop
     ? [selectedChild.morningStop.lat, selectedChild.morningStop.lng]
-    : [51.518, -0.113]
+    : [9.0290, 38.7590]
 
   let busStatus = { mode: 'none', secondsAgo: null }
   let busDistanceM = 0
@@ -600,7 +629,7 @@ export function useParentData() {
   } else if (!isLiveBackend) {
     busStatus = prototypeBusStatus('live')
     busDistanceM = 1000
-    busPosition = [51.514, -0.118]
+    busPosition = [9.0245, 38.7540]
   }
 
   return {

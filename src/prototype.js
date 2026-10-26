@@ -2,7 +2,7 @@
 
 // Sample location. The coordinates are arbitrary: change ORIGIN to your own
 // city (lat, lng) to see the sample route there. Real routes come from the school.
-const ORIGIN = { lat: 51.5074, lng: -0.1278 }
+const ORIGIN = { lat: 9.0205, lng: 38.7500 }
 
 // Converts metres east/north of ORIGIN into [lat, lng].
 function fromMeters(eastM, northM) {
@@ -33,17 +33,23 @@ export function formatRadius(meters, t) {
   return meters >= 1000 ? `${meters / 1000} ${t('unit.km')}` : `${meters} ${t('unit.m')}`
 }
 
-export const ROUTE = [[0, 0], [0, 500], [600, 500], [600, 1200], [1400, 1200], [1400, 1900]].map(([x, y]) => fromMeters(x, y))
+export const ROUTE = [
+  [9.0205, 38.7500],
+  [9.0230, 38.7530],
+  [9.0260, 38.7560],
+  [9.0290, 38.7590],
+  [9.0320, 38.7620],
+]
 
 export const STOPS = [
-  { id: 1, position: fromMeters(0, 250) },
-  { id: 2, position: fromMeters(300, 500) },
-  { id: 3, position: fromMeters(600, 850) },
-  { id: 4, position: fromMeters(1000, 1200) },
-  { id: 5, position: fromMeters(1400, 1500) },
+  { id: 1, position: [9.0205, 38.7500] },
+  { id: 2, position: [9.0230, 38.7530] },
+  { id: 3, position: [9.0260, 38.7560] },
+  { id: 4, position: [9.0290, 38.7590] },
+  { id: 5, position: [9.0320, 38.7620] },
 ]
 export const MY_STOP = STOPS[3]
-export const BUS_POSITION = fromMeters(600, 640)
+export const BUS_POSITION = [9.0245, 38.7545]
 export const BUS_DISTANCE_M = distanceMeters(BUS_POSITION, MY_STOP.position)
 
 // How old a bus position may be before parents see it as "last seen" instead of live.

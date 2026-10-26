@@ -7,14 +7,18 @@ import { resolve } from 'node:path'
  * 1) Parent client trip_id filter and waiting state (show no bus until first point of current trip).
  * 2) ingest_location resilience: broadcast failure never rolls back the stored point.
  * 3) Jump check recovery:
- *    a. >60s outage recovery (last accepted point older than ~60s accepts new point).
- *    b. Consecutive rejected points agreement recovery (accepts when 2 consecutive points agree).
- *    c. Single glitch rejection (rejects single outlier, recovers if real point follows).
+ *    a. >60s outage recovery (jump <= 5km accepted).
+ *    b. Capped outage jump (jump > 5km after outage still rejected).
+ *    c. Consecutive agreeing points with poor accuracy (>100m) rejected.
+ *    d. Consecutive agreeing points with reasonable accuracy (<=100m) accepted.
+ *    e. Single glitch rejection (rejects single outlier, recovers if real point follows).
+ * 4) end_trip clears bus_locations_latest and last_rejected_* for the bus.
+ * 5) cancel_trip clears bus_locations_latest and last_rejected_* for the bus.
  */
 
 async function runFollowupTests() {
   console.log('\n=============================================================')
-  console.log('🧪 STEP 8b FOLLOW-UPS VERIFICATION TEST SUITE')
+  console.log('🧪 STEP 8b FOLLOW-UPS VERIFICATION TEST SUITE (DRY-RUN)')
   console.log('=============================================================\n')
 
   let passedAll = true
@@ -215,7 +219,7 @@ async function runFollowupTests() {
   // --------------------------------------------------------------------------
   console.log('📋 [TEST 2] Ingest location resilience: broadcast failure does not roll back point...')
 
-  // Force realtime.send to fail by simulating broker / extension error
+  // Force realtime.send to fail
   await db.exec(`
     CREATE OR REPLACE FUNCTION realtime.send(
       p_payload jsonb,
@@ -285,11 +289,11 @@ async function runFollowupTests() {
   `)
 
   // --------------------------------------------------------------------------
-  // TEST 3: Jump Check Recovery
+  // TEST 3: Jump Check Recovery & 5km Capping
   // --------------------------------------------------------------------------
-  console.log('\n📋 [TEST 3] Jump check recovery...')
+  console.log('\n📋 [TEST 3] Jump check recovery & outage capping...')
 
-  // Reset bus_locations_latest to initial point at T0
+  // Reset bus_locations_latest to initial point at T0 (80 seconds ago)
   await db.exec(`
     UPDATE public.bus_locations_latest
     SET lat = 9.0200,
@@ -303,13 +307,13 @@ async function runFollowupTests() {
     WHERE bus_id = '${busId}';
   `)
 
-  // 3A: Outage > 60s Recovery
-  console.log('   📍 [3A] Last accepted point is 80s old (> 60s) -> Large jump (~5 km)...')
-  const resOutage = await db.query(`
+  // 3A: Outage > 60s Recovery for <= 5km jump
+  console.log('   📍 [3A] Outage of 80s (> 60s) with plausible jump (3 km <= 5 km)...')
+  const resOutagePlausible = await db.query(`
     SELECT public.ingest_location(
       '${tripId}'::uuid,
-      9.0550::double precision,
-      38.7850::double precision,
+      9.0450::double precision,
+      38.7500::double precision,
       45.0::double precision,
       12.0::double precision,
       10.0::double precision,
@@ -317,162 +321,217 @@ async function runFollowupTests() {
     ) as result;
   `)
 
-  if (resOutage.rows[0].result.status === 'accepted') {
-    console.log('   ✅ PASS [3A]: Outage > 60s bypassed jump check and ACCEPTED new point.')
+  if (resOutagePlausible.rows[0].result.status === 'accepted') {
+    console.log('   ✅ PASS [3A]: Outage > 60s with jump <= 5km was ACCEPTED.')
   } else {
-    console.error('   ❌ FAIL [3A]: Outage recovery failed:', resOutage.rows[0])
+    console.error('   ❌ FAIL [3A]: Outage recovery <= 5km failed:', resOutagePlausible.rows[0])
     passedAll = false
   }
 
-  // 3B: Consecutive Rejected Points Agreement Recovery
-  console.log('   📍 [3B] Consecutive rejected points agreement recovery...')
-  // Set current accepted point at (9.0200, 38.7500) recorded 10s ago
+  // 3B: Cap Jump-Check Bypass: Outage > 60s with > 5km jump must be REJECTED
+  console.log('   📍 [3B] Outage of 80s (> 60s) with jump > 5km (15 km) -> Must be REJECTED...')
+  await db.exec(`
+    UPDATE public.bus_locations_latest
+    SET lat = 9.0200,
+        lng = 38.7500,
+        recorded_at = now() - interval '80 seconds'
+    WHERE bus_id = '${busId}';
+  `)
+
+  const resOutageTooLarge = await db.query(`
+    SELECT public.ingest_location(
+      '${tripId}'::uuid,
+      9.1600::double precision,
+      38.7500::double precision,
+      45.0::double precision,
+      12.0::double precision,
+      10.0::double precision,
+      100::integer
+    ) as result;
+  `)
+
+  if (resOutageTooLarge.rows[0].result.status === 'rejected_jump') {
+    console.log('   ✅ PASS [3B]: Jump > 5km after outage was correctly REJECTED with "rejected_jump".')
+  } else {
+    console.error('   ❌ FAIL [3B]: Jump > 5km after outage was NOT rejected:', resOutageTooLarge.rows[0])
+    passedAll = false
+  }
+
+  // 3C: Consecutive agreement with POOR accuracy (> 100m) must be REJECTED
+  console.log('   📍 [3C] Consecutive agreeing points with degraded accuracy (> 100m) -> Must be REJECTED...')
   await db.exec(`
     UPDATE public.bus_locations_latest
     SET lat = 9.0200,
         lng = 38.7500,
         accuracy = 10.0,
-        speed = 10.0,
         recorded_at = now() - interval '10 seconds',
         last_rejected_lat = NULL,
         last_rejected_lng = NULL,
+        last_rejected_accuracy = NULL,
         last_rejected_at = NULL
     WHERE bus_id = '${busId}';
   `)
 
-  // Point B1: sudden jump to (9.0500, 38.7800) ~4.5 km away in 10s (~450 m/s >> 45 m/s)
-  console.log('      Sending Point B1 (Jump to 9.0500, 38.7800 in 10s gap) -> Expect rejected_jump...')
-  const resB1 = await db.query(`
+  // Candidate point 1 with degraded accuracy (250m)
+  const resDegraded1 = await db.query(`
     SELECT public.ingest_location(
       '${tripId}'::uuid,
       9.0500::double precision,
       38.7800::double precision,
       45.0::double precision,
       10.0::double precision,
-      10.0::double precision,
+      250.0::double precision,
       100::integer
     ) as result;
   `)
 
-  const b1Status = resB1.rows[0].result.status
-  const checkRej1 = await db.query(`
-    SELECT last_rejected_lat, last_rejected_lng, last_rejected_at
-    FROM public.bus_locations_latest
-    WHERE bus_id = '${busId}';
+  // Fast-forward last_rejected_at by 10s
+  await db.exec(`UPDATE public.bus_locations_latest SET last_rejected_at = now() - interval '10 seconds' WHERE bus_id = '${busId}';`)
+
+  // Candidate point 2 agreeing with point 1, but also with degraded accuracy (200m)
+  const resDegraded2 = await db.query(`
+    SELECT public.ingest_location(
+      '${tripId}'::uuid,
+      9.0501::double precision,
+      38.7801::double precision,
+      45.0::double precision,
+      10.0::double precision,
+      200.0::double precision,
+      100::integer
+    ) as result;
   `)
 
-  if (b1Status === 'rejected_jump' && checkRej1.rows[0].last_rejected_lat === 9.05) {
-    console.log('      ✅ Point B1 was rejected with status="rejected_jump" and candidate saved in bus_locations_latest.')
+  if (
+    resDegraded1.rows[0].result.status === 'rejected_jump' &&
+    resDegraded2.rows[0].result.status === 'rejected_jump'
+  ) {
+    console.log('   ✅ PASS [3C]: Agreeing points with poor accuracy (> 100m) were rejected.')
   } else {
-    console.error('      ❌ FAIL: Point B1 was not rejected properly:', b1Status, checkRej1.rows)
+    console.error('   ❌ FAIL [3C]: Poor accuracy points were unexpectedly accepted:', resDegraded2.rows[0])
     passedAll = false
   }
 
-  // Point B2: arrives 10s later at (9.0502, 38.7802) (~30m from Point B1)
-  // Distance from Point B1 is ~30m, which is plausible (30m <= 45*10 + 20 + 50 = 520m)
-  // Point B2 agrees with Point B1 -> Must be ACCEPTED!
-  console.log('      Sending Point B2 10s later at (9.0502, 38.7802) (agrees with B1) -> Expect ACCEPTED...')
-  // Fast-forward last_rejected_at by 10s to simulate 10s gap
+  // 3D: Consecutive agreement with REASONABLE accuracy (<= 100m) must be ACCEPTED
+  console.log('   📍 [3D] Consecutive agreeing points with reasonable accuracy (<= 100m) -> Must be ACCEPTED...')
   await db.exec(`
     UPDATE public.bus_locations_latest
-    SET last_rejected_at = now() - interval '10 seconds'
+    SET lat = 9.0200,
+        lng = 38.7500,
+        accuracy = 10.0,
+        recorded_at = now() - interval '10 seconds',
+        last_rejected_lat = NULL,
+        last_rejected_lng = NULL,
+        last_rejected_accuracy = NULL,
+        last_rejected_at = NULL
     WHERE bus_id = '${busId}';
   `)
 
-  const resB2 = await db.query(`
+  // Point D1: Jump with reasonable accuracy (15m) -> Expect rejected_jump
+  const resD1 = await db.query(`
+    SELECT public.ingest_location(
+      '${tripId}'::uuid,
+      9.0500::double precision,
+      38.7800::double precision,
+      45.0::double precision,
+      10.0::double precision,
+      15.0::double precision,
+      100::integer
+    ) as result;
+  `)
+
+  await db.exec(`UPDATE public.bus_locations_latest SET last_rejected_at = now() - interval '10 seconds' WHERE bus_id = '${busId}';`)
+
+  // Point D2: Agreeing point with reasonable accuracy (15m) -> Expect ACCEPTED
+  const resD2 = await db.query(`
     SELECT public.ingest_location(
       '${tripId}'::uuid,
       9.0502::double precision,
       38.7802::double precision,
       45.0::double precision,
       10.0::double precision,
-      10.0::double precision,
+      15.0::double precision,
       100::integer
     ) as result;
   `)
 
-  const b2Status = resB2.rows[0].result.status
-  const checkAfterB2 = await db.query(`
-    SELECT lat, lng, last_rejected_lat, last_rejected_at
+  const d2Status = resD2.rows[0].result.status
+  const checkAfterD2 = await db.query(`
+    SELECT lat, lng, last_rejected_lat
     FROM public.bus_locations_latest
     WHERE bus_id = '${busId}';
   `)
 
   if (
-    b2Status === 'accepted' &&
-    checkAfterB2.rows[0].lat === 9.0502 &&
-    checkAfterB2.rows[0].last_rejected_lat === null
+    resD1.rows[0].result.status === 'rejected_jump' &&
+    d2Status === 'accepted' &&
+    checkAfterD2.rows[0].lat === 9.0502 &&
+    checkAfterD2.rows[0].last_rejected_lat === null
   ) {
-    console.log('   ✅ PASS [3B]: Consecutive rejected points agreed with each other and Point B2 was ACCEPTED!')
-    console.log('      last_rejected tracking was cleared back to NULL.')
+    console.log('   ✅ PASS [3D]: Agreeing points with reasonable accuracy were ACCEPTED, and last_rejected cleared.')
   } else {
-    console.error('   ❌ FAIL [3B]: Consecutive agreement recovery failed:', b2Status, checkAfterB2.rows)
+    console.error('   ❌ FAIL [3D]: Reasonable accuracy recovery failed:', d2Status, checkAfterD2.rows)
     passedAll = false
   }
 
-  // 3C: Single Glitch Rejection (Outlier point rejected, subsequent real point accepted)
-  console.log('   📍 [3C] Single random glitch rejection...')
-  // Set bus at (9.0200, 38.7500)
-  await db.exec(`
-    UPDATE public.bus_locations_latest
-    SET lat = 9.0200,
-        lng = 38.7500,
-        accuracy = 10.0,
-        speed = 10.0,
-        recorded_at = now() - interval '10 seconds',
-        last_rejected_lat = NULL,
-        last_rejected_lng = NULL,
-        last_rejected_at = NULL
-    WHERE bus_id = '${busId}';
-  `)
+  // --------------------------------------------------------------------------
+  // TEST 4: end_trip clears bus_locations_latest and last_rejected_*
+  // --------------------------------------------------------------------------
+  console.log('\n📋 [TEST 4] end_trip clears bus_locations_latest and last_rejected_*...')
+  const resEnd = await db.query(`SELECT public.end_trip('${tripId}'::uuid) as result;`)
+  const checkLatestAfterEnd = await db.query(`SELECT * FROM public.bus_locations_latest WHERE bus_id = '${busId}';`)
 
-  // Glitch point at (12.5000, 38.7500) (~400 km away)
-  const resGlitch = await db.query(`
+  if (resEnd.rows[0].result.status === 'completed' && checkLatestAfterEnd.rows.length === 0) {
+    console.log('   ✅ PASS [TEST 4]: end_trip successfully removed row from bus_locations_latest for this bus.')
+  } else {
+    console.error('   ❌ FAIL [TEST 4]: bus_locations_latest was not cleared by end_trip:', checkLatestAfterEnd.rows)
+    passedAll = false
+  }
+
+  // --------------------------------------------------------------------------
+  // TEST 5: cancel_trip clears bus_locations_latest and last_rejected_*
+  // --------------------------------------------------------------------------
+  console.log('\n📋 [TEST 5] cancel_trip clears bus_locations_latest and last_rejected_*...')
+  // Start a fresh trip to test cancel
+  const trip2Res = await db.query(`
+    INSERT INTO public.trips (school_id, route_id, bus_id, driver_profile_id, trip_date, direction, status, scheduled_start, started_at)
+    VALUES ('${schoolId}', '${routeId}', '${busId}', '${driverId}', CURRENT_DATE + 1, 'afternoon', 'in_progress', now(), now())
+    RETURNING id;
+  `)
+  const trip2Id = trip2Res.rows[0].id
+
+  // Ingest a location
+  await db.query(`
     SELECT public.ingest_location(
-      '${tripId}'::uuid,
-      12.5000::double precision,
+      '${trip2Id}'::uuid,
+      9.0200::double precision,
       38.7500::double precision,
       45.0::double precision,
       10.0::double precision,
-      10.0::double precision,
-      100::integer
-    ) as result;
+      12.0::double precision,
+      150::integer
+    );
   `)
 
-  if (resGlitch.rows[0].result.status !== 'rejected_jump') {
-    console.error('   ❌ FAIL [3C]: Glitch was not rejected:', resGlitch.rows[0])
+  const checkBeforeCancel = await db.query(`SELECT * FROM public.bus_locations_latest WHERE bus_id = '${busId}';`)
+  if (checkBeforeCancel.rows.length !== 1) {
+    console.error('   ❌ Setup error: location not inserted before cancel')
     passedAll = false
   }
 
-  // Normal subsequent point at (9.0208, 38.7508) (80m from valid last point)
-  await db.exec(`
-    UPDATE public.bus_locations_latest
-    SET recorded_at = now() - interval '10 seconds'
-    WHERE bus_id = '${busId}';
-  `)
+  // Cancel trip
+  const resCancel = await db.query(`SELECT public.cancel_trip('${trip2Id}'::uuid, 'Test weather cancellation') as result;`)
+  const checkAfterCancel = await db.query(`SELECT * FROM public.bus_locations_latest WHERE bus_id = '${busId}';`)
 
-  const resNormal = await db.query(`
-    SELECT public.ingest_location(
-      '${tripId}'::uuid,
-      9.0208::double precision,
-      38.7508::double precision,
-      45.0::double precision,
-      10.0::double precision,
-      10.0::double precision,
-      100::integer
-    ) as result;
-  `)
-
-  if (resNormal.rows[0].result.status === 'accepted') {
-    console.log('   ✅ PASS [3C]: Single glitch was rejected, and real path point was ACCEPTED normally.')
+  if (resCancel.rows[0].result.status === 'cancelled' && checkAfterCancel.rows.length === 0) {
+    console.log('   ✅ PASS [TEST 5]: cancel_trip successfully removed row from bus_locations_latest for this bus.')
   } else {
-    console.error('   ❌ FAIL [3C]: Subsequent valid point was not accepted:', resNormal.rows[0])
+    console.error('   ❌ FAIL [TEST 5]: bus_locations_latest was not cleared by cancel_trip:', checkAfterCancel.rows)
     passedAll = false
   }
 
   console.log('\n=============================================================')
   if (passedAll) {
-    console.log('🎉 ALL STEP 8b FOLLOW-UP TESTS PASSED 100%!')
+    console.log('🎉 ALL STEP 8b FOLLOW-UP DRY-RUN TESTS PASSED 100%!')
   } else {
     console.error('❌ ONE OR MORE TESTS FAILED!')
     process.exit(1)

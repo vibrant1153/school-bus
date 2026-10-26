@@ -1,5 +1,6 @@
+import { useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Tooltip } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useI18n } from '../i18n/useI18n.js'
 import { useParentData } from '../lib/useParentData.js'
@@ -10,8 +11,27 @@ import {
   ROUTE as FALLBACK_ROUTE,
 } from '../prototype.js'
 
+function MapController({ center }) {
+  const map = useMap()
+  useEffect(() => {
+    if (center && center[0] && center[1]) {
+      map.panTo(center, { animate: true, duration: 0.8 })
+    }
+  }, [center?.[0], center?.[1], map])
+  return null
+}
+
+function MapRefBinder({ mapRef }) {
+  const map = useMap()
+  useEffect(() => {
+    mapRef.current = map
+  }, [map, mapRef])
+  return null
+}
+
 export default function ParentMap() {
   const { t } = useI18n()
+  const mapRef = useRef(null)
   const {
     selectedChild,
     activeTrip,
@@ -24,10 +44,10 @@ export default function ParentMap() {
   const busNumber = activeTrip?.buses?.bus_number || selectedChild?.busNumber || 1
   const stopName = selectedChild?.morningStop?.name || t('map.yourStop')
 
-  // Child stop position (or fallback London coordinate for prototype demo)
+  // Child stop position (or fallback Addis Ababa coordinate for prototype demo)
   const stopPosition = selectedChild?.morningStop?.lat && selectedChild?.morningStop?.lng
     ? [selectedChild.morningStop.lat, selectedChild.morningStop.lng]
-    : [51.518, -0.113]
+    : [9.0290, 38.7590]
 
   const stale = busStatus.mode === 'stale'
   const noTrip = busStatus.mode === 'none'
@@ -49,12 +69,21 @@ export default function ParentMap() {
           center={mapCenter}
           zoom={14}
           zoomControl={false}
+          zoomSnap={0.25}
+          zoomDelta={0.5}
+          wheelPxPerZoomLevel={120}
           className="absolute inset-0"
         >
-          {/* OpenStreetMap public tiles for development */}
+          <MapRefBinder mapRef={mapRef} />
+          <MapController center={mapCenter} />
+
+          {/* OpenStreetMap public tiles with buffer caching for smooth zooming */}
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maxZoom={19}
+            keepBuffer={6}
+            updateWhenZooming={false}
           />
 
           {/* Route path */}
@@ -124,6 +153,42 @@ export default function ParentMap() {
               ? `● ${t('home.lastSeen', { age }).toUpperCase()}`
               : `● ${t('home.live').split(' · ')[0]} · ${age}`}
           </p>
+        </div>
+
+        {/* Floating Zoom & Recenter Controls (smooth PC & laptop desktop experience) */}
+        <div className="pointer-events-none absolute right-4 top-20 z-[1000] flex flex-col gap-2">
+          <div className="pointer-events-auto flex flex-col overflow-hidden rounded-xl bg-white shadow-md border border-gray-100">
+            <button
+              type="button"
+              onClick={() => mapRef.current?.zoomIn(0.5)}
+              aria-label="Zoom in"
+              className="flex h-10 w-10 items-center justify-center text-xl font-bold text-ink hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              +
+            </button>
+            <div className="h-[1px] bg-gray-200" />
+            <button
+              type="button"
+              onClick={() => mapRef.current?.zoomOut(0.5)}
+              aria-label="Zoom out"
+              className="flex h-10 w-10 items-center justify-center text-xl font-bold text-ink hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              −
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (mapRef.current && mapCenter) {
+                mapRef.current.flyTo(mapCenter, 15, { duration: 0.8 })
+              }
+            }}
+            title="Recenter on bus / stop"
+            aria-label="Recenter"
+            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-base shadow-md border border-gray-100 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          >
+            🎯
+          </button>
         </div>
       </div>
 

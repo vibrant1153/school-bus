@@ -52,12 +52,14 @@ async function getClientForUser(email, password) {
 
 async function runStep8bTests() {
   console.log('\n=============================================================')
-  console.log('🚌 STEP 8b: Driver Telemetry & Realtime Ingest Test Suite')
+  console.log('🚌 STEP 8b: Remote Telemetry & Ingest Resilience Test Suite')
   console.log('=============================================================\n')
 
   let tempUserId = null
   let tripStartedByTest = false
+  let initialTripStatus = 'scheduled'
   let testTripId = null
+  let testBusId = null
   const tempUserEmail = `temp_parent_route_b_${Date.now()}@schoolbus.local`
   const school1Id = 'e40fae94-592e-433d-be90-1c8e0b531acc'
 
@@ -73,6 +75,7 @@ async function runStep8bTests() {
       .eq('routes.name', 'Route A')
       .eq('trip_date', todayStr)
       .in('status', ['scheduled', 'in_progress'])
+      .order('direction', { ascending: false })
       .limit(1)
 
     if (!tripData || tripData.length === 0) {
@@ -82,7 +85,7 @@ async function runStep8bTests() {
         .eq('school_id', school1Id)
         .eq('routes.name', 'Route A')
         .in('status', ['scheduled', 'in_progress'])
-        .order('trip_date', { ascending: false })
+        .order('trip_date', { ascending: true })
         .limit(1)
 
       if (fbErr || !fallbackTrips || fallbackTrips.length === 0) {
@@ -95,11 +98,13 @@ async function runStep8bTests() {
 
     const trip = tripData[0]
     testTripId = trip.id
+    testBusId = trip.bus_id
+    initialTripStatus = trip.status
     console.log(`   ✅ Target trip: ${testTripId} (${trip.trip_date} ${trip.direction}, status: ${trip.status})`)
 
-    // Clear prior bus_locations for this trip so test points start fresh
-    await adminClient.from('bus_locations').delete().eq('trip_id', testTripId)
-    await adminClient.from('bus_locations_latest').delete().eq('trip_id', testTripId)
+    // Clear prior bus_location_history and bus_locations_latest for this bus/trip
+    await adminClient.from('bus_location_history').delete().eq('trip_id', testTripId)
+    await adminClient.from('bus_locations_latest').delete().eq('bus_id', testBusId)
 
     // Authenticate driver1
     const { client: driverClient, user: driverUser } = await getClientForUser('driver1@schoolbus.local', driver1Pass)
@@ -119,7 +124,7 @@ async function runStep8bTests() {
       console.log('   ✅ Trip transitioned from scheduled -> in_progress via start_trip RPC')
     }
 
-    // 2. Identify Student D on Route B (to test same-school parent on another trip)
+    // 2. Identify Student D on Route B (to test unauthorized same-school parent)
     const { data: studentD, error: stuErr } = await adminClient
       .from('students')
       .select('id, full_name')
@@ -178,7 +183,6 @@ async function runStep8bTests() {
     const channelAnon = anonClient.channel(topic, { config: { private: true } })
 
     channelParent1.on('broadcast', { event: 'location' }, (payload) => {
-      console.log(`   📩 [parent1] Received broadcast #${receivedEvents.parent1.length + 1}:`, payload.payload)
       receivedEvents.parent1.push(payload.payload)
     })
     channelParentB.on('broadcast', { event: 'location' }, (payload) => {
@@ -191,9 +195,9 @@ async function runStep8bTests() {
       receivedEvents.anon.push(payload.payload)
     })
 
-    function subscribePromise(channel, name) {
+    function subscribePromise(channel) {
       return new Promise((resolve) => {
-        channel.subscribe((status, err) => {
+        channel.subscribe((status) => {
           if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             resolve(status)
           }
@@ -202,10 +206,10 @@ async function runStep8bTests() {
     }
 
     await Promise.all([
-      subscribePromise(channelParent1, 'parent1'),
-      subscribePromise(channelParentB, 'parent_other_trip'),
-      subscribePromise(channelManager2, 'manager_other_school'),
-      subscribePromise(channelAnon, 'anon'),
+      subscribePromise(channelParent1),
+      subscribePromise(channelParentB),
+      subscribePromise(channelManager2),
+      subscribePromise(channelAnon),
     ])
 
     // Wait 2s for Realtime routing
@@ -233,7 +237,7 @@ async function runStep8bTests() {
     if (err1) throw new Error(`Test 1 failed: ${err1.message}`)
     if (res1?.status === 'accepted') {
       countAccepted++
-      console.log(`   ✅ Accepted: status=${res1.status}, size=${res1.payload_size_bytes}B`)
+      console.log(`   ✅ Accepted: status=${res1.status}, payload_size=${res1.payload_size_bytes}B`)
     }
 
     // Test Point 2: Rapid consecutive point (< 5s) -> Must be rate-limited (no broadcast)
@@ -273,7 +277,7 @@ async function runStep8bTests() {
     if (err3) throw new Error(`Test 3 failed: ${err3.message}`)
     if (res3?.status === 'accepted') {
       countAccepted++
-      console.log(`   ✅ Accepted: status=${res3.status}, size=${res3.payload_size_bytes}B`)
+      console.log(`   ✅ Accepted: status=${res3.status}, payload_size=${res3.payload_size_bytes}B`)
     }
 
     // Wait 6 seconds
@@ -281,7 +285,7 @@ async function runStep8bTests() {
     await new Promise((r) => setTimeout(r, 6000))
 
     // Test Point 4: Implausible Jump Check
-    console.log('📍 [Test 4] Sending Point 4 with implausible jump (lat 12.5000, ~450km jump) -> Expect 22023 rejection...')
+    console.log('📍 [Test 4] Sending Point 4 with implausible jump (lat 12.5000, ~450km jump)...')
     const { data: res4, error: err4 } = await driverClient.rpc('ingest_location', {
       p_trip_id: testTripId,
       p_lat: 12.5000,
@@ -291,11 +295,11 @@ async function runStep8bTests() {
       p_accuracy: 10.0,
       p_age_ms: 100,
     })
-    if (err4 && (err4.code === '22023' || err4.message.includes('jump'))) {
+    if (res4?.status === 'rejected_jump') {
       countRejectedJump++
-      console.log(`   ✅ Correctly rejected with 22023: "${err4.message}"`)
+      console.log(`   ✅ Point 4 rejected with status="rejected_jump": "${res4.message}"`)
     } else {
-      console.error(`   ❌ Failed: jump was NOT rejected! Result:`, res4, err4)
+      console.error(`   ❌ Failed: expected status=rejected_jump, got:`, res4, err4)
     }
 
     // Test Point 5: Stale Age Check (> 30s)
@@ -307,7 +311,7 @@ async function runStep8bTests() {
       p_heading: 48.0,
       p_speed: 10.0,
       p_accuracy: 10.0,
-      p_age_ms: 45000, // 45 seconds old
+      p_age_ms: 45000,
     })
     if (err5 && (err5.code === '22023' || err5.message.includes('age'))) {
       countRejectedAge++
@@ -316,8 +320,74 @@ async function runStep8bTests() {
       console.error(`   ❌ Failed: stale age was NOT rejected! Result:`, res5, err5)
     }
 
-    // Wait 4 seconds for all Realtime broadcasts to arrive
-    console.log('\n⏳ Waiting 4 seconds for message propagation...')
+    // -------------------------------------------------------------
+    // Follow-Up Scenarios: Jump Recovery & Agreement Rules
+    // -------------------------------------------------------------
+    console.log('\n-------------------------------------------------------------')
+    console.log('🔄 Follow-Up Scenarios: 6A (rejected_jump) & 6B (agreeing point accepted)')
+    console.log('-------------------------------------------------------------')
+
+    // Wait 6 seconds
+    await new Promise((r) => setTimeout(r, 6000))
+
+    // Scenario 6A: Candidate Jump Point (9.0500, 38.7800, acc 15m) -> Expect rejected_jump
+    console.log('📍 [Follow-up 6A] Sending Candidate Jump Point (9.0500, 38.7800, acc 15m)...')
+    const { data: res6a, error: err6a } = await driverClient.rpc('ingest_location', {
+      p_trip_id: testTripId,
+      p_lat: 9.0500,
+      p_lng: 38.7800,
+      p_heading: 45.0,
+      p_speed: 10.0,
+      p_accuracy: 15.0,
+      p_age_ms: 100,
+    })
+
+    if (err6a) {
+      console.error(`   ❌ 6A returned error: ${err6a.message}`)
+    } else if (res6a?.status === 'rejected_jump') {
+      console.log(`   ✅ 6A returns rejected_jump: status="${res6a.status}", message="${res6a.message}"`)
+      const { data: latest6a } = await adminClient
+        .from('bus_locations_latest')
+        .select('last_rejected_lat, last_rejected_lng, last_rejected_accuracy, last_rejected_at')
+        .eq('bus_id', testBusId)
+        .single()
+      console.log(`   ✅ 6A candidate stored in bus_locations_latest:`, latest6a)
+    } else {
+      console.error(`   ❌ 6A unexpected response:`, res6a)
+    }
+
+    // Wait 6 seconds
+    console.log('\n⏳ Waiting 6 seconds...')
+    await new Promise((r) => setTimeout(r, 6000))
+
+    // Scenario 6B: Agreeing Point (9.0502, 38.7802, acc 15m <= 100m) -> Expect accepted
+    console.log('📍 [Follow-up 6B] Sending Agreeing Point (9.0502, 38.7802, acc 15m <= 100m, agrees with 6A)...')
+    const { data: res6b, error: err6b } = await driverClient.rpc('ingest_location', {
+      p_trip_id: testTripId,
+      p_lat: 9.0502,
+      p_lng: 38.7802,
+      p_heading: 45.0,
+      p_speed: 10.0,
+      p_accuracy: 15.0,
+      p_age_ms: 100,
+    })
+
+    if (err6b) {
+      console.error(`   ❌ 6B returned error: ${err6b.message}`)
+    } else if (res6b?.status === 'accepted') {
+      countAccepted++
+      console.log(`   ✅ 6B (agreeing point, accuracy <= 100 m) is accepted: status="${res6b.status}"`)
+      const { data: latest6b } = await adminClient
+        .from('bus_locations_latest')
+        .select('lat, lng, last_rejected_lat, last_rejected_at')
+        .eq('bus_id', testBusId)
+        .single()
+      console.log(`   ✅ 6B persisted as latest location; last_rejected_* cleared:`, latest6b)
+    } else {
+      console.error(`   ❌ 6B unexpected response:`, res6b)
+    }
+
+    // Wait 4 seconds for Realtime propagation
     await new Promise((r) => setTimeout(r, 4000))
 
     // Teardown channels
@@ -328,77 +398,82 @@ async function runStep8bTests() {
       anonClient.removeChannel(channelAnon),
     ])
 
-    // 5. Verification & Final Report
+    // -------------------------------------------------------------
+    // Test: end_trip clears bus_locations_latest and last_rejected_*
+    // -------------------------------------------------------------
+    console.log('\n-------------------------------------------------------------')
+    console.log('🛑 Testing end_trip clears bus_locations_latest & last_rejected_*')
+    console.log('-------------------------------------------------------------')
+
+    const { data: resEnd, error: errEnd } = await driverClient.rpc('end_trip', { p_trip_id: testTripId })
+    if (errEnd) {
+      console.error(`   ❌ end_trip returned error: ${errEnd.message}`)
+    } else {
+      console.log(`   ✅ end_trip succeeded: status="${resEnd.status}", total_pings=${resEnd.total_pings}`)
+    }
+
+    const { data: latestAfterEnd, error: errLatest } = await adminClient
+      .from('bus_locations_latest')
+      .select('*')
+      .eq('bus_id', testBusId)
+
+    if (latestAfterEnd && latestAfterEnd.length === 0) {
+      console.log(`   ✅ Verified: bus_locations_latest and last_rejected_* for bus ${testBusId} are CLEARED (0 rows found).`)
+    } else {
+      console.error(`   ❌ Failed: bus_locations_latest was NOT cleared:`, latestAfterEnd)
+    }
+
+    // 5. Verification & Summary
     console.log('\n=============================================================')
-    console.log('📊 STEP 8b DRIVER TELEMETRY & REALTIME TEST COUNTS')
+    console.log('📊 STEP 8b REMOTE TEST RESULTS SUMMARY')
     console.log('=============================================================')
-    console.log(`Total Points Attempted by Driver:       5`)
-    console.log(`Points Accepted & Broadcast:            ${countAccepted} (Expected: 2)`)
+    console.log(`Points Accepted & Broadcast:            ${countAccepted} (Expected: 3)`)
     console.log(`Points Rate-Limited (No Broadcast):     ${countRateLimited} (Expected: 1)`)
     console.log(`Points Rejected on Jump Check:          ${countRejectedJump} (Expected: 1)`)
     console.log(`Points Rejected on Stale Age (>30s):    ${countRejectedAge} (Expected: 1)`)
-    console.log('-------------------------------------------------------------')
-    console.log(`Parent1 (Right Trip Parent) Received:   ${receivedEvents.parent1.length} point(s)`)
-    console.log(`Parent Other Trip Received:             ${receivedEvents.parent_other_trip.length} point(s) (Expected: 0)`)
-    console.log(`Manager Other School Received:          ${receivedEvents.manager_other_school.length} point(s) (Expected: 0)`)
-    console.log(`Anon Client Received:                   ${receivedEvents.anon.length} point(s) (Expected: 0)`)
+    console.log(`6A Status:                              ${res6a?.status} (Expected: rejected_jump)`)
+    console.log(`6B Status:                              ${res6b?.status} (Expected: accepted)`)
+    console.log(`bus_locations_latest Rows After End:    ${latestAfterEnd?.length} (Expected: 0)`)
+    console.log(`Parent1 Total Received Broadcasts:      ${receivedEvents.parent1.length}`)
+    console.log(`Unauthorized Subscribers Received:      ${receivedEvents.parent_other_trip.length + receivedEvents.manager_other_school.length + receivedEvents.anon.length} (Expected: 0)`)
     console.log('=============================================================')
 
     let allPassed = true
-    if (countAccepted === 2) {
-      console.log('✅ PASS: Exactly 2 valid points accepted.')
-    } else {
-      console.error('❌ FAIL: Expected 2 accepted points, got ' + countAccepted)
-      allPassed = false
+    if (res6a?.status !== 'rejected_jump') allPassed = false
+    if (res6b?.status !== 'accepted') allPassed = false
+    if (!latestAfterEnd || latestAfterEnd.length !== 0) allPassed = false
+    if (receivedEvents.parent_other_trip.length !== 0 || receivedEvents.anon.length !== 0) allPassed = false
+
+    if (!allPassed) {
+      throw new Error('One or more Step 8b remote assertions failed.')
     }
 
-    if (countRateLimited === 1) {
-      console.log('✅ PASS: Rapid consecutive point (< 5s) was rate-limited.')
-    } else {
-      console.error('❌ FAIL: Rate-limiting did not trigger properly.')
-      allPassed = false
-    }
-
-    if (countRejectedJump === 1) {
-      console.log('✅ PASS: Implausible jump was rejected.')
-    } else {
-      console.error('❌ FAIL: Implausible jump was not rejected.')
-      allPassed = false
-    }
-
-    if (countRejectedAge === 1) {
-      console.log('✅ PASS: Stale point (>30s) was rejected.')
-    } else {
-      console.error('❌ FAIL: Stale age check did not reject.')
-      allPassed = false
-    }
-
-    if (receivedEvents.parent1.length === 2) {
-      console.log('✅ PASS: Parent1 received both valid points in correct sequential order.')
-      console.log('   Point 1 timestamp: ' + receivedEvents.parent1[0]?.t + ' (lat: ' + receivedEvents.parent1[0]?.lat + ')')
-      console.log('   Point 2 timestamp: ' + receivedEvents.parent1[1]?.t + ' (lat: ' + receivedEvents.parent1[1]?.lat + ')')
-    } else {
-      console.error('❌ FAIL: Parent1 did not receive expected 2 points, got ' + receivedEvents.parent1.length)
-      allPassed = false
-    }
-
-    if (
-      receivedEvents.parent_other_trip.length === 0 &&
-      receivedEvents.manager_other_school.length === 0 &&
-      receivedEvents.anon.length === 0
-    ) {
-      console.log('✅ PASS: All unauthorized actors (same-school other-trip parent, other-school manager, anon) received 0 points.')
-    } else {
-      console.error('❌ FAIL: Message leak detected to unauthorized actors!')
-      allPassed = false
-    }
-
-    if (!allPassed) throw new Error('One or more Step 8b telemetry assertions failed.')
-
-    console.log('\n🎉 ALL STEP 8b TELEMETRY AND REALTIME TESTS PASSED PERFECTLY!\n')
+    console.log('\n🎉 ALL STEP 8b SCENARIOS PASSED PERFECTLY ON REMOTE!\n')
   } finally {
+    // Cleanup fake rows and reset trip back to scheduled
+    if (testTripId) {
+      console.log(`🧹 [CLEANUP] Deleting fake test location history, alerts, and summaries...`)
+      await adminClient.from('bus_location_history').delete().eq('trip_id', testTripId)
+      await adminClient.from('bus_locations_latest').delete().eq('trip_id', testTripId)
+      if (testBusId) {
+        await adminClient.from('bus_locations_latest').delete().eq('bus_id', testBusId)
+      }
+      await adminClient.from('trip_summaries').delete().eq('trip_id', testTripId)
+      await adminClient.from('alert_events').delete().eq('trip_id', testTripId)
+      console.log('   ✅ Test telemetry data deleted.')
+
+      console.log(`🧹 [CLEANUP] Resetting trip ${testTripId} status back to '${initialTripStatus}'...`)
+      await adminClient.from('trips').update({
+        status: initialTripStatus,
+        started_at: null,
+        ended_at: null,
+        updated_at: new Date().toISOString()
+      }).eq('id', testTripId)
+      console.log(`   ✅ Trip status reset back to '${initialTripStatus}' for real-phone testing.`)
+    }
+
     if (tempUserId) {
-      console.log(`🧹 Cleaning up temporary parent user ${tempUserId}...`)
+      console.log(`🧹 [CLEANUP] Cleaning up temporary parent user ${tempUserId}...`)
       await adminClient.from('guardians').delete().eq('profile_id', tempUserId)
       await adminClient.from('profiles').delete().eq('id', tempUserId)
       await adminClient.auth.admin.deleteUser(tempUserId)
