@@ -52,7 +52,7 @@ function Row({ label, ok, text }) {
 
 export default function Driver() {
   const { t } = useI18n()
-  const { user, profile } = useAuth()
+  const { user, profile, signOut } = useAuth()
   const [phase, setPhase] = useState('ready')
   const [checking, setChecking] = useState(false)
   const [checked, setChecked] = useState(false)
@@ -432,11 +432,20 @@ export default function Driver() {
       <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-5 bg-night p-6 text-white">
         <div>
           <div className="flex items-center justify-between">
-            <Link to="/" className="text-sm text-night-muted underline">{t('driver.back')}</Link>
-            <LanguageSwitch dark />
+            <p className="text-sm font-semibold text-night-muted">{busRoute}</p>
+            <div className="flex items-center gap-3">
+              <LanguageSwitch dark />
+              <button
+                type="button"
+                onClick={signOut}
+                aria-label="Sign out"
+                className="rounded-lg border border-night-line px-3 py-1.5 text-xs font-semibold text-night-muted hover:bg-night-card hover:text-white transition-colors"
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
-          <p className="mt-3 text-sm text-night-muted">{busRoute}</p>
-          <h1 className="mt-1 text-3xl font-bold">{t('driver.ready.title')}</h1>
+          <h1 className="mt-3 text-3xl font-bold">{t('driver.ready.title')}</h1>
         </div>
 
         {tripError && (
@@ -500,6 +509,14 @@ export default function Driver() {
         <div className="flex items-center gap-3">
           <p className="text-[13px] font-bold text-go">● {t('driver.inProgress')}</p>
           <LanguageSwitch dark />
+          <button
+            type="button"
+            onClick={signOut}
+            aria-label="Sign out"
+            className="rounded-lg border border-night-line px-3 py-1.5 text-xs font-semibold text-night-muted hover:bg-night-card hover:text-white transition-colors"
+          >
+            Sign Out
+          </button>
         </div>
       </div>
 

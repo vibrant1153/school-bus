@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import LanguageSwitch from '../i18n/LanguageSwitch.jsx'
 import { useI18n } from '../i18n/useI18n.js'
@@ -16,6 +16,11 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [localError, setLocalError] = useState('')
+
+  // Blocks the auto-redirect useEffect while handleSubmit is running the
+  // portal-tab role check. Without this, the redirect fires before signOut()
+  // can kick out a driver who accidentally used the Parent Portal tab.
+  const checkingRoleRef = useRef(false)
 
   // First-time temporary password change state (stored in app_metadata)
   const isFirstTimePasswordChange = Boolean(
@@ -41,11 +46,14 @@ export default function Login() {
     if (userRole === 'owner') return '/owner'
     if (userRole === 'manager') return '/manager'
     if (userRole === 'driver') return '/driver'
-    return '/home'
+    if (userRole === 'parent') return '/home'
+    return '/'
   }
 
-  // Route authenticated user to their role destination
+  // Route authenticated user to their role destination.
+  // Skipped when handleSubmit is mid-flight doing a portal-tab role check.
   useEffect(() => {
+    if (checkingRoleRef.current) return
     if (user && role && !user.app_metadata?.must_change_password && !user.user_metadata?.must_change_password) {
       const destination = location.state?.from?.pathname
       const target = getAuthorizedDestination(role, destination)
@@ -66,32 +74,47 @@ export default function Login() {
       return
     }
 
+    // Block the auto-redirect useEffect while we do the role-mode check below.
+    checkingRoleRef.current = true
     setLoading(true)
     const result = await signIn(identifier, password)
     setLoading(false)
 
     if (!result.success) {
+      checkingRoleRef.current = false
       setLocalError(result.error || 'Failed to sign in. Please verify your credentials.')
       return
     }
 
-    // Role-mode alignment check: prevent drivers from logging into the parent portal and vice-versa
+    // Role-mode alignment check: prevent drivers/managers/owners from logging
+    // into the Parent Portal tab, and parents from using the Staff tab.
     const userRole = result.role || result.profile?.role
+
     if (loginMode === 'parent' && userRole && userRole !== 'parent') {
       await signOut()
+      checkingRoleRef.current = false
+      const label = userRole === 'driver' ? 'Driver'
+        : userRole === 'manager' ? 'Manager'
+        : userRole === 'owner' ? 'Platform Owner'
+        : userRole
       setLocalError(
-        userRole === 'driver'
-          ? '⚠️ This is a Driver account. Please switch to the "🚌 Staff & Driver" tab to sign in.'
-          : `⚠️ This is a ${userRole} account. Please switch to the "🚌 Staff & Driver" tab to sign in.`
+        `⚠️ That is a ${label} account. Please switch to the "🚌 Staff, Driver & Owner" tab to sign in.`
       )
       return
     }
 
     if (loginMode === 'staff' && userRole === 'parent') {
       await signOut()
-      setLocalError('⚠️ This is a Parent account. Please switch to the "👨‍👩‍👧 Parent Portal" tab to sign in.')
+      checkingRoleRef.current = false
+      setLocalError('⚠️ That is a Parent account. Please switch to the "👨‍👩‍👧 Parent Portal" tab to sign in.')
       return
     }
+
+    // All checks passed — allow the redirect and navigate immediately
+    checkingRoleRef.current = false
+    const destination = location.state?.from?.pathname
+    const target = getAuthorizedDestination(userRole, destination)
+    navigate(target, { replace: true })
   }
 
   async function handlePasswordChangeSubmit(e) {

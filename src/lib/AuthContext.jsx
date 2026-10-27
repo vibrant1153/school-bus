@@ -65,11 +65,14 @@ export function AuthProvider({ children }) {
         .eq('id', userId)
         .single()
 
-      if (error) {
-        console.error('Failed to load profile:', error.message)
-        setAuthError('Profile not found. Contact administrator.')
+      if (error || !data) {
+        console.error('Failed to load profile:', error?.message)
+        await supabase.auth.signOut()
+        setAuthError('This account has no profile in SchoolBus Connect. Please contact your administrator.')
         setProfile(null)
         setRole(null)
+        setUser(null)
+        setSession(null)
         return null
       } else if (!data.is_active) {
         // Enforce active lifecycle invariant: deactivated profiles cannot maintain an active session
@@ -77,6 +80,8 @@ export function AuthProvider({ children }) {
         setAuthError('Your account has been deactivated. Please contact your school administrator.')
         setProfile(null)
         setRole(null)
+        setUser(null)
+        setSession(null)
         return null
       } else {
         setProfile(data)
@@ -92,7 +97,6 @@ export function AuthProvider({ children }) {
       setLoading(false)
     }
   }
-
 
   async function signIn(identifier, password) {
     setAuthError(null)
@@ -123,10 +127,22 @@ export function AuthProvider({ children }) {
       loadedProfile = await fetchProfile(data.user.id)
     }
 
+    if (!loadedProfile || !loadedProfile.role) {
+      await supabase.auth.signOut()
+      setUser(null)
+      setSession(null)
+      setProfile(null)
+      setRole(null)
+      setLoading(false)
+      const err = 'This account has no assigned role in SchoolBus Connect. Please contact your school administrator.'
+      setAuthError(err)
+      return { success: false, error: err }
+    }
+
     return {
       success: true,
       user: data.user,
-      role: loadedProfile?.role || null,
+      role: loadedProfile.role,
       profile: loadedProfile,
     }
   }

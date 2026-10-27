@@ -21,12 +21,18 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/" state={{ from: location }} replace />
   }
 
-  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
-    // Role not authorized for this route: redirect to user's home screen
+  // If user has no valid role assigned in the database, redirect to login
+  if (!role) {
+    return <Navigate to="/" replace />
+  }
+
+  if (allowedRoles && !allowedRoles.includes(role)) {
+    // Role not authorized for this route: redirect to that role's designated home screen
     if (role === 'owner') return <Navigate to="/owner" replace />
     if (role === 'manager') return <Navigate to="/manager" replace />
     if (role === 'driver') return <Navigate to="/driver" replace />
-    return <Navigate to="/home" replace />
+    if (role === 'parent') return <Navigate to="/home" replace />
+    return <Navigate to="/" replace />
   }
 
   return children

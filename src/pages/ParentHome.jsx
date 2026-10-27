@@ -79,7 +79,7 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
 
 export default function ParentHome() {
   const { t } = useI18n()
-  const { profile } = useAuth()
+  const { profile, signOut } = useAuth()
   const {
     children,
     selectedChild,
@@ -167,7 +167,16 @@ export default function ParentHome() {
             <p className="text-sm text-muted">{t('home.greeting')}</p>
             <h1 className="text-[22px] font-bold text-ink">{parentName}</h1>
           </div>
-          <LanguageSwitch />
+          <div className="flex items-center gap-2">
+            <LanguageSwitch />
+            <button
+              type="button"
+              onClick={signOut}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-danger hover:bg-red-50 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
         {error && (

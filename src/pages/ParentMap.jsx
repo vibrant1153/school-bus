@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Tooltip, useMa
 import 'leaflet/dist/leaflet.css'
 import { useI18n } from '../i18n/useI18n.js'
 import { useParentData } from '../lib/useParentData.js'
+import ParentNav from '../components/ParentNav.jsx'
 import {
   describeAge,
   formatDistance,
@@ -236,6 +237,7 @@ export default function ParentMap() {
           </Link>
         </div>
       </section>
+      <ParentNav active="map" />
     </div>
   )
 }

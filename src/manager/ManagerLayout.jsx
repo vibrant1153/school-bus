@@ -21,14 +21,23 @@ export default function ManagerLayout() {
     <div className="min-h-screen bg-gray-50 lg:flex">
       {/* Sidebar Navigation */}
       <aside className="bg-ink text-white lg:flex lg:w-60 lg:shrink-0 lg:flex-col lg:py-6">
-        <div className="flex items-center gap-2.5 px-5 pt-4 pb-2 lg:pt-0 lg:pb-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber font-bold text-ink">
-            SC
+        <div className="flex items-center justify-between px-5 pt-4 pb-2 lg:pt-0 lg:pb-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber font-bold text-ink">
+              SC
+            </div>
+            <div>
+              <p className="text-[15px] font-bold leading-tight">SchoolBus Connect</p>
+              <p className="text-xs text-night-muted">School Manager</p>
+            </div>
           </div>
-          <div>
-            <p className="text-[15px] font-bold leading-tight">SchoolBus Connect</p>
-            <p className="text-xs text-night-muted">School Manager</p>
-          </div>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded-lg border border-white/20 px-2.5 py-1 text-xs font-semibold text-amber hover:bg-white/10 lg:hidden"
+          >
+            Sign out
+          </button>
         </div>
 
         <nav aria-label="Manager" className="flex overflow-x-auto lg:flex-col lg:gap-1">

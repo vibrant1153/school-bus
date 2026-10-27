@@ -2,6 +2,7 @@ import LanguageSwitch from '../i18n/LanguageSwitch.jsx'
 import ParentNav from '../components/ParentNav.jsx'
 import { useI18n } from '../i18n/useI18n.js'
 import { useParentData } from '../lib/useParentData.js'
+import { useAuth } from '../lib/useAuth.js'
 import { formatRadius } from '../prototype.js'
 
 function formatAlertText(alert, t) {
@@ -56,6 +57,7 @@ const DOT = {
 
 export default function Alerts() {
   const { t } = useI18n()
+  const { signOut } = useAuth()
   const { alerts, loading } = useParentData()
 
   const groups = [
@@ -69,7 +71,16 @@ export default function Alerts() {
       <main className="flex flex-1 flex-col gap-4 p-5 pb-6">
         <header className="flex items-center justify-between">
           <h1 className="text-[22px] font-bold text-ink">{t('alerts.title')}</h1>
-          <LanguageSwitch />
+          <div className="flex items-center gap-2">
+            <LanguageSwitch />
+            <button
+              type="button"
+              onClick={signOut}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-danger hover:bg-red-50 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
         {loading ? (
