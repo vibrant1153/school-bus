@@ -118,26 +118,29 @@ export default function OwnerDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 text-ink">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
+      <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 backdrop-blur-md px-4 sm:px-6 py-2.5 sm:py-0">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber font-bold text-ink">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber font-extrabold text-ink shadow-sm">
             SC
           </div>
           <div>
-            <h1 className="text-base font-bold text-ink">Platform Administration</h1>
-            <p className="text-xs text-muted">SchoolBus Connect Network Overview</p>
+            <h1 className="text-sm sm:text-base font-bold text-ink leading-tight">Platform Administration</h1>
+            <p className="text-[11px] sm:text-xs text-muted">SchoolBus Connect Network Overview</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-xs font-medium text-muted">
-            {profile?.full_name || user?.email} (Owner)
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+          <span className="hidden sm:inline rounded-full bg-purple-100 px-2.5 py-1 text-xs font-bold text-purple-900">
+            👑 {profile?.full_name || user?.email} (Owner)
           </span>
           <button
+            type="button"
             onClick={signOut}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-muted hover:border-gray-300 hover:text-ink"
+            aria-label="Sign out"
+            className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-1.5 text-xs sm:text-sm font-bold text-red-600 shadow-xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
           >
-            Sign Out
+            <span aria-hidden="true">🚪</span>
+            <span>Log Out</span>
           </button>
         </div>
       </header>

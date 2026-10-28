@@ -431,17 +431,18 @@ export default function Driver() {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-5 bg-night p-6 text-white">
         <div>
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-night-muted">{busRoute}</p>
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs sm:text-sm font-semibold text-night-muted truncate max-w-[180px] sm:max-w-none">{busRoute}</p>
+            <div className="flex items-center gap-2 shrink-0">
               <LanguageSwitch dark />
               <button
                 type="button"
                 onClick={signOut}
                 aria-label="Sign out"
-                className="rounded-lg border border-night-line px-3 py-1.5 text-xs font-semibold text-night-muted hover:bg-night-card hover:text-white transition-colors"
+                className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-400 shadow-sm hover:bg-red-500 hover:text-white active:scale-95 transition-all"
               >
-                Sign Out
+                <span aria-hidden="true">🚪</span>
+                <span>Log Out</span>
               </button>
             </div>
           </div>
@@ -504,18 +505,19 @@ export default function Driver() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-5 bg-night p-6 text-white">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-night-muted">{busRoute}</p>
-        <div className="flex items-center gap-3">
-          <p className="text-[13px] font-bold text-go">● {t('driver.inProgress')}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs sm:text-sm text-night-muted truncate max-w-[160px] sm:max-w-none">{busRoute}</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <p className="text-[12px] sm:text-[13px] font-bold text-go">● {t('driver.inProgress')}</p>
           <LanguageSwitch dark />
           <button
             type="button"
             onClick={signOut}
             aria-label="Sign out"
-            className="rounded-lg border border-night-line px-3 py-1.5 text-xs font-semibold text-night-muted hover:bg-night-card hover:text-white transition-colors"
+            className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-400 shadow-sm hover:bg-red-500 hover:text-white active:scale-95 transition-all"
           >
-            Sign Out
+            <span aria-hidden="true">🚪</span>
+            <span>Log Out</span>
           </button>
         </div>
       </div>

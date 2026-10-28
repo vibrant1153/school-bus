@@ -69,16 +69,18 @@ export default function Alerts() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-gray-50">
       <main className="flex flex-1 flex-col gap-4 p-5 pb-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-[22px] font-bold text-ink">{t('alerts.title')}</h1>
-          <div className="flex items-center gap-2">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl sm:text-[22px] font-extrabold text-ink">{t('alerts.title')}</h1>
+          <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitch />
             <button
               type="button"
               onClick={signOut}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-danger hover:bg-red-50 transition-colors"
+              aria-label="Sign out"
+              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-600 shadow-xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
             >
-              Sign out
+              <span aria-hidden="true">🚪</span>
+              <span>Log Out</span>
             </button>
           </div>
         </header>

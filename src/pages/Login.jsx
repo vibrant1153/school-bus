@@ -215,8 +215,32 @@ export default function Login() {
 
       {/* Error Banner */}
       {(localError || authError) && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
-          {localError || authError}
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 flex flex-col gap-2.5">
+          <p>{localError || authError}</p>
+          {localError?.includes('Staff, Driver & Owner') && (
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMode('staff')
+                setLocalError('')
+              }}
+              className="self-start rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-slate-900 transition-colors"
+            >
+              🚌 Switch to Staff & Driver Tab Now →
+            </button>
+          )}
+          {localError?.includes('Parent Portal') && (
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMode('parent')
+                setLocalError('')
+              }}
+              className="self-start rounded-lg bg-amber px-3 py-1.5 text-xs font-bold text-ink shadow-xs hover:opacity-90 transition-opacity"
+            >
+              👨‍👩‍👧 Switch to Parent Portal Tab Now →
+            </button>
+          )}
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useI18n } from '../i18n/useI18n.js'
+import { useAuth } from '../lib/useAuth.js'
 import { useParentData } from '../lib/useParentData.js'
 import ParentNav from '../components/ParentNav.jsx'
 import {
@@ -32,6 +33,7 @@ function MapRefBinder({ mapRef }) {
 
 export default function ParentMap() {
   const { t } = useI18n()
+  const { signOut } = useAuth()
   const mapRef = useRef(null)
   const {
     selectedChild,
@@ -133,27 +135,39 @@ export default function ParentMap() {
         </MapContainer>
 
         {/* Floating Top Header */}
-        <div className="pointer-events-none absolute inset-x-4 top-4 z-[1000] flex items-center justify-between">
-          <Link
-            to="/home"
-            className="pointer-events-auto flex min-h-11 items-center rounded-xl bg-white px-3.5 text-[15px] font-bold text-ink shadow-md hover:bg-gray-50"
+        <div className="pointer-events-none absolute inset-x-3 sm:inset-x-4 top-3 sm:top-4 z-[1000] flex items-center justify-between gap-2">
+          <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2">
+            <Link
+              to="/home"
+              className="flex min-h-10 sm:min-h-11 items-center rounded-xl bg-white/95 backdrop-blur-sm px-3 sm:px-3.5 text-xs sm:text-[15px] font-bold text-ink shadow-md hover:bg-gray-50 active:scale-95 transition-all"
+            >
+              ← {t('map.back')}
+            </Link>
+            <p
+              className={
+                'rounded-xl bg-white/95 backdrop-blur-sm px-2.5 sm:px-3.5 py-2 sm:py-2.5 text-[11px] sm:text-[13px] font-bold shadow-md ' +
+                (busStatus.mode === 'live' ? 'text-live' : 'text-muted')
+              }
+            >
+              {isWaiting
+                ? '● WAITING GPS'
+                : noTrip
+                ? t('home.none.badge')
+                : stale
+                ? `● ${t('home.lastSeen', { age }).toUpperCase()}`
+                : `● ${t('home.live').split(' · ')[0]} · ${age}`}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={signOut}
+            aria-label="Sign out"
+            className="pointer-events-auto flex min-h-10 sm:min-h-11 items-center gap-1.5 rounded-xl border border-red-200 bg-white/95 backdrop-blur-sm px-3 py-2 text-xs sm:text-sm font-bold text-red-600 shadow-md hover:bg-red-50 hover:text-red-700 active:scale-95 transition-all"
           >
-            {t('map.back')}
-          </Link>
-          <p
-            className={
-              'rounded-xl bg-white px-3.5 py-2.5 text-[13px] font-bold shadow-md ' +
-              (busStatus.mode === 'live' ? 'text-live' : 'text-muted')
-            }
-          >
-            {isWaiting
-              ? '● WAITING FOR BUS GPS'
-              : noTrip
-              ? t('home.none.badge')
-              : stale
-              ? `● ${t('home.lastSeen', { age }).toUpperCase()}`
-              : `● ${t('home.live').split(' · ')[0]} · ${age}`}
-          </p>
+            <span aria-hidden="true">🚪</span>
+            <span>Log Out</span>
+          </button>
         </div>
 
         {/* Floating Zoom & Recenter Controls (smooth PC & laptop desktop experience) */}
