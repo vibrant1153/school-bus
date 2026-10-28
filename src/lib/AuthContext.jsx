@@ -161,28 +161,64 @@ export function AuthProvider({ children }) {
   async function updatePassword(newPassword) {
     try {
       const currentSession = session || (await supabase.auth.getSession()).data.session
-      if (!currentSession?.access_token) {
+      const token = currentSession?.access_token
+      if (!token) {
         return { success: false, error: 'Not authenticated' }
       }
 
+      // 1. Primary: Call Vercel serverless endpoint to update password & clear must_change_password
+      try {
+        const res = await fetch('/api/change-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ new_password: newPassword }),
+        })
+
+        if (res.ok) {
+          const json = await res.json().catch(() => ({}))
+          if (json.success) {
+            const { data: refreshed } = await supabase.auth.getUser()
+            if (refreshed?.user) {
+              setUser(refreshed.user)
+            }
+            return { success: true }
+          }
+        }
+      } catch (apiErr) {
+        console.warn('API change-password route error, falling back:', apiErr)
+      }
+
+      // 2. Fallback: Edge Function
       const { data, error } = await supabase.functions.invoke('change-password', {
         body: { new_password: newPassword },
       })
 
-      if (error) {
-        return { success: false, error: error.message || 'Failed to update password' }
-      }
-      if (!data?.success) {
-        return { success: false, error: data?.error || 'Failed to update password' }
+      if (!error && data?.success) {
+        const { data: refreshed } = await supabase.auth.getUser()
+        if (refreshed?.user) {
+          setUser(refreshed.user)
+        }
+        return { success: true }
       }
 
-      const { data: refreshed } = await supabase.auth.getUser()
-      if (refreshed?.user) {
-        setUser(refreshed.user)
+      // 3. Fallback: Supabase direct client update
+      const { data: directData, error: directErr } = await supabase.auth.updateUser({
+        password: newPassword,
+      })
+
+      if (directErr) {
+        return { success: false, error: directErr.message || 'Failed to update password' }
+      }
+
+      if (directData?.user) {
+        setUser(directData.user)
       }
       return { success: true }
     } catch (err) {
-      return { success: false, error: err.message }
+      return { success: false, error: err.message || 'An error occurred updating password' }
     }
   }
 

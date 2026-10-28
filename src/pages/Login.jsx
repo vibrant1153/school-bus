@@ -110,7 +110,18 @@ export default function Login() {
       return
     }
 
-    // All checks passed — allow the redirect and navigate immediately
+    // All checks passed — check if user is required to set a permanent password first
+    const mustChange = Boolean(
+      result.user?.app_metadata?.must_change_password ||
+      result.user?.user_metadata?.must_change_password
+    )
+
+    if (mustChange) {
+      // Keep checkingRoleRef.current = true to prevent the auto-redirect useEffect from firing!
+      // The user stays on the login page and the "Set New Password" modal will remain open for them.
+      return
+    }
+
     checkingRoleRef.current = false
     const destination = location.state?.from?.pathname
     const target = getAuthorizedDestination(userRole, destination)
@@ -135,10 +146,11 @@ export default function Login() {
     setChangingPassword(false)
 
     if (res.success) {
-      if (role === 'owner') navigate('/owner', { replace: true })
-      else if (role === 'manager') navigate('/manager', { replace: true })
-      else if (role === 'driver') navigate('/driver', { replace: true })
-      else navigate('/home', { replace: true })
+      checkingRoleRef.current = false
+      const destination = location.state?.from?.pathname
+      const userRole = role || user?.profile?.role
+      const target = getAuthorizedDestination(userRole, destination)
+      navigate(target, { replace: true })
     } else {
       setChangeError(res.error || 'Failed to update password. Please try again.')
     }

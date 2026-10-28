@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
+import { useAuth } from '../lib/useAuth.js'
 
 function SettingsForm({ school, onSave }) {
   const [name, setName] = useState(school?.name || '')
@@ -108,6 +109,114 @@ function SettingsForm({ school, onSave }) {
   )
 }
 
+function ManagerSecurityForm() {
+  const { user, profile, updatePassword } = useAuth()
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [successMsg, setSuccessMsg] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
+
+  const mustChange = Boolean(user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password)
+
+  async function handlePasswordSubmit(e) {
+    e.preventDefault()
+    setSuccessMsg(null)
+    setErrorMsg(null)
+
+    if (newPassword.length < 8) {
+      setErrorMsg('Password must be at least 8 characters long.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMsg('Passwords do not match.')
+      return
+    }
+
+    setSaving(true)
+    const res = await updatePassword(newPassword)
+    setSaving(false)
+
+    if (res.success) {
+      setSuccessMsg('Your password has been successfully updated and secured!')
+      setNewPassword('')
+      setConfirmPassword('')
+    } else {
+      setErrorMsg(res.error || 'Failed to update password. Please try again.')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-xs border border-gray-200">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber/20 text-lg">
+          🔐
+        </span>
+        <div>
+          <h2 className="text-base font-bold text-ink">Manager Security &amp; Password</h2>
+          <p className="text-xs text-muted">
+            Logged in as <b>{profile?.full_name || 'Manager'}</b> ({user?.email || 'No email attached'})
+          </p>
+        </div>
+      </div>
+
+      {mustChange && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+          ⚠️ You are currently using a temporary password. Please set your permanent password below.
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-800">
+          ✓ {successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs font-semibold text-red-700">
+          ✕ {errorMsg}
+        </div>
+      )}
+
+      <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4">
+        <div>
+          <label className="text-xs font-bold text-ink">New Password</label>
+          <input
+            type="password"
+            required
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="At least 8 characters"
+            className="mt-1 min-h-11 w-full rounded-xl border border-field px-3.5 text-sm text-ink focus:border-amber focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-bold text-ink">Confirm New Password</label>
+          <input
+            type="password"
+            required
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Re-enter new password"
+            className="mt-1 min-h-11 w-full rounded-xl border border-field px-3.5 text-sm text-ink focus:border-amber focus:outline-none"
+          />
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-ink px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50 shadow-xs"
+          >
+            {saving ? 'Updating Password…' : 'Update My Password'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function Settings() {
   const { school, updateSchoolSettings, loading } = useManagerData()
 
@@ -124,7 +233,7 @@ export default function Settings() {
       <header>
         <h1 className="text-[28px] font-bold text-ink">School Office &amp; Settings</h1>
         <p className="text-sm text-muted">
-          Manage your school details and the official contact phone number shown to parents.
+          Manage your school details, official contact phone number, and your manager account security.
         </p>
       </header>
 
@@ -134,10 +243,12 @@ export default function Settings() {
         onSave={updateSchoolSettings}
       />
 
+      <ManagerSecurityForm />
+
       <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5 text-xs text-muted">
         <p className="font-semibold text-ink">🔒 Security &amp; Audit Notice</p>
         <p className="mt-1 leading-relaxed">
-          All changes to school office details and contact numbers are validated against database security constraints and automatically recorded in the school&apos;s immutable audit log.
+          All changes to school office details and manager credentials are automatically recorded in the school&apos;s immutable audit log.
         </p>
       </section>
     </div>
