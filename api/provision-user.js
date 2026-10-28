@@ -75,7 +75,22 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'School not found.' })
     }
 
-    // 5. Generate secure temp password if not provided
+    // 5. Invariant: Each school can only have one active manager account
+    const { data: existingManager } = await adminSupabase
+      .from('profiles')
+      .select('id, full_name, phone')
+      .eq('school_id', school_id)
+      .eq('role', 'manager')
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (existingManager) {
+      return res.status(409).json({
+        error: `"${school.name}" already has an assigned manager (${existingManager.full_name}). Each school operates under one primary manager account. You do not need to create another account—use "Reset Password" to update their login credentials.`
+      })
+    }
+
+    // 6. Generate secure temp password if not provided
     const finalPassword = temp_password?.trim() || (() => {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$'
       let pwd = ''
@@ -103,7 +118,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. Create user in Supabase auth
+    // 7. Create user in Supabase auth
     const { data: createdAuth, error: createAuthErr } = await adminSupabase.auth.admin.createUser({
       email: email.trim().toLowerCase(),
       password: finalPassword,
@@ -118,12 +133,18 @@ export default async function handler(req, res) {
     })
 
     if (createAuthErr) {
-      return res.status(400).json({ error: `Auth creation failed: ${createAuthErr.message}` })
+      const msg = createAuthErr.message?.toLowerCase() || ''
+      if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+        return res.status(409).json({
+          error: `An account with the email "${email.trim().toLowerCase()}" already exists. Please choose a different email address.`
+        })
+      }
+      return res.status(400).json({ error: `Could not create authentication account: ${createAuthErr.message}` })
     }
 
     const newUserId = createdAuth.user.id
 
-    // 7. Insert profile with role 'manager'
+    // 8. Insert profile with role 'manager'
     const { error: profileInsertErr } = await adminSupabase
       .from('profiles')
       .insert({
@@ -136,9 +157,17 @@ export default async function handler(req, res) {
       })
 
     if (profileInsertErr) {
-      // rollback auth user
+      // Rollback auth user
       await adminSupabase.auth.admin.deleteUser(newUserId)
-      return res.status(500).json({ error: `Profile creation failed: ${profileInsertErr.message}` })
+      const errDetail = profileInsertErr.message || ''
+      if (errDetail.includes('idx_profiles_phone_unique') || profileInsertErr.code === '23505') {
+        return res.status(409).json({
+          error: `The phone number ${cleanPhone || phone} is already linked to another account in SchoolBus Connect. Please use a unique phone number or leave the phone field blank.`
+        })
+      }
+      return res.status(400).json({
+        error: 'Could not create manager profile. Please check that the email and phone number are unique.'
+      })
     }
 
     // 8. Log audit entry

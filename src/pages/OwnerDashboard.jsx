@@ -41,6 +41,12 @@ export default function OwnerDashboard() {
   const [createdCredentials, setCreatedCredentials] = useState(null)
   const [copied, setCopied] = useState(false)
 
+  // Reset Manager Password state
+  const [resetSchoolTarget, setResetSchoolTarget] = useState(null)
+  const [newManagerPassInput, setNewManagerPassInput] = useState('')
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [resetPassError, setResetPassError] = useState('')
+
   // Purge Modal state
   const [purgeSchool, setPurgeSchool] = useState(null)
   const [purging, setPurging] = useState(false)
@@ -263,9 +269,38 @@ export default function OwnerDashboard() {
     }
   }
 
+  function humanizeError(err) {
+    const raw = (typeof err === 'string' ? err : err?.message || err?.error || '') + ''
+    if (raw.includes('idx_profiles_phone_unique') || raw.toLowerCase().includes('unique constraint "idx_profiles_phone_unique"')) {
+      return 'This phone number is already registered to another user account. Please use a different phone number or leave the phone field blank.'
+    }
+    if (raw.includes('already has an assigned manager') || raw.includes('one primary manager account')) {
+      return raw
+    }
+    if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already exists') || raw.includes('email_exists')) {
+      return 'An account with this email address already exists. Please choose a different email address.'
+    }
+    if (raw.toLowerCase().includes('duplicate key')) {
+      return 'A user with these details already exists. Please ensure the email and phone number are unique.'
+    }
+    if (raw.includes('at least 8 characters')) {
+      return 'The temporary password must be at least 8 characters long.'
+    }
+    return raw || 'Failed to complete operation. Please try again.'
+  }
+
   async function handleProvisionManager(e) {
     if (e) e.preventDefault()
     if (!provisionSchool) return
+
+    // Invariant: single manager per school
+    const existing = managers.find((m) => m.school_id === provisionSchool.id)
+    if (existing) {
+      setProvisionError(
+        `"${provisionSchool.name}" already has an assigned manager (${existing.full_name}). Each school is assigned one primary manager account. You do not need to create another account—use "Reset Password" if login credentials need updating.`
+      )
+      return
+    }
 
     setProvisioning(true)
     setProvisionError('')
@@ -281,30 +316,32 @@ export default function OwnerDashboard() {
 
     try {
       let provSuccess = null
-      // 1. Try Supabase Edge Function provision-user
-      const { data, error: fnErr } = await supabase.functions.invoke('provision-user', {
-        body: payload,
+      // 1. Try /api/provision-user first (has strict single-manager enforcement and clean errors)
+      const session = (await supabase.auth.getSession())?.data?.session
+      const res = await fetch('/api/provision-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify(payload),
       })
 
-      if (!fnErr && data?.success) {
-        provSuccess = data
-      } else {
-        // 2. Fallback to /api/provision-user
-        const session = (await supabase.auth.getSession())?.data?.session
-        const res = await fetch('/api/provision-user', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token || ''}`,
-          },
-          body: JSON.stringify(payload),
-        })
-
-        const resData = await res.json().catch(() => ({}))
-        if (!res.ok || !resData.success) {
-          throw new Error(resData.error || fnErr?.message || 'Failed to provision manager.')
-        }
+      const resData = await res.json().catch(() => ({}))
+      if (res.ok && resData.success) {
         provSuccess = resData
+      } else if (resData.error) {
+        throw new Error(resData.error)
+      } else {
+        // Fallback to Edge Function
+        const { data: edgeData, error: fnErr } = await supabase.functions.invoke('provision-user', {
+          body: payload,
+        })
+        if (!fnErr && edgeData?.success) {
+          provSuccess = edgeData
+        } else {
+          throw new Error(fnErr?.message || 'Failed to provision manager.')
+        }
       }
 
       const sch = provisionSchool
@@ -324,9 +361,57 @@ export default function OwnerDashboard() {
       })
     } catch (err) {
       console.error('Failed to provision manager:', err)
-      setProvisionError(err.message || 'Failed to provision manager.')
+      setProvisionError(humanizeError(err))
     } finally {
       setProvisioning(false)
+    }
+  }
+
+  async function handleResetManagerPassword(e) {
+    if (e) e.preventDefault()
+    if (!resetSchoolTarget || !resetSchoolTarget.mgr) return
+
+    setResettingPassword(true)
+    setResetPassError('')
+
+    const payload = {
+      manager_id: resetSchoolTarget.mgr.id,
+      new_password: newManagerPassInput.trim() || undefined,
+    }
+
+    try {
+      const session = (await supabase.auth.getSession())?.data?.session
+      const res = await fetch('/api/reset-manager-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to reset manager password.')
+      }
+
+      const sch = resetSchoolTarget.school
+      const mgr = resetSchoolTarget.mgr
+      setResetSchoolTarget(null)
+      setNewManagerPassInput('')
+
+      setCreatedCredentials({
+        schoolName: sch.name,
+        schoolCode: sch.code,
+        fullName: mgr.full_name,
+        email: data.email,
+        password: data.new_password,
+      })
+    } catch (err) {
+      console.error('Failed to reset manager password:', err)
+      setResetPassError(humanizeError(err))
+    } finally {
+      setResettingPassword(false)
     }
   }
 
@@ -507,21 +592,36 @@ export default function OwnerDashboard() {
                         <td className="px-6 py-4 font-semibold text-ink">{m?.total_students ?? '—'}</td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProvisionSchool(school)
-                                setManagerFullName(mgr?.full_name || '')
-                                setManagerEmail('')
-                                setManagerPhone(mgr?.phone || school.contact_phone || '')
-                                setManagerPassword('')
-                                setProvisionError('')
-                              }}
-                              className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
-                              title="Provision or add manager credentials for this school"
-                            >
-                              👤 {mgr ? 'New Manager' : 'Add Manager'}
-                            </button>
+                            {mgr ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setResetSchoolTarget({ school, mgr })
+                                  setNewManagerPassInput('')
+                                  setResetPassError('')
+                                }}
+                                className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-colors shadow-2xs"
+                                title={`Reset login password for ${mgr.full_name}`}
+                              >
+                                🔑 Reset Password
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProvisionSchool(school)
+                                  setManagerFullName('')
+                                  setManagerEmail('')
+                                  setManagerPhone(school.contact_phone || '')
+                                  setManagerPassword('')
+                                  setProvisionError('')
+                                }}
+                                className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-colors shadow-2xs"
+                                title="Provision manager credentials for this school"
+                              >
+                                👤 Add Manager
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => { setPurgeSchool(school); setPurgeError('') }}
@@ -999,6 +1099,81 @@ export default function OwnerDashboard() {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Manager Password Modal */}
+      {resetSchoolTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-indigo-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-lg">
+                  🔑
+                </span>
+                <div>
+                  <h3 className="text-lg font-bold text-ink">Reset Manager Password</h3>
+                  <p className="text-xs text-muted font-mono">{resetSchoolTarget.school.name} ({resetSchoolTarget.school.code})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setResetSchoolTarget(null); setResetPassError(''); setNewManagerPassInput('') }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-3.5 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-xs text-indigo-900">
+              <p className="font-semibold text-indigo-950">
+                Registered Manager: <strong>{resetSchoolTarget.mgr.full_name}</strong>
+              </p>
+              <p className="mt-1 text-indigo-800 text-[11px] leading-relaxed">
+                Issuing a new password will update their login credentials. Upon signing in, they will be prompted to choose a new permanent password.
+              </p>
+            </div>
+
+            {resetPassError && (
+              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+                {resetPassError}
+              </div>
+            )}
+
+            <form onSubmit={handleResetManagerPassword} className="mt-4 flex flex-col gap-3.5">
+              <div>
+                <label className="text-xs font-semibold text-ink">New Temporary Password</label>
+                <input
+                  type="text"
+                  placeholder="Leave blank to auto-generate secure password"
+                  value={newManagerPassInput}
+                  onChange={(e) => setNewManagerPassInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm font-mono text-ink"
+                />
+                <p className="mt-1 text-[11px] text-muted">
+                  Minimum 8 characters. Leave empty for an automatically generated secure password.
+                </p>
+              </div>
+
+              <div className="mt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setResetSchoolTarget(null); setResetPassError(''); setNewManagerPassInput('') }}
+                  disabled={resettingPassword}
+                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resettingPassword}
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {resettingPassword ? 'Updating Password…' : 'Issue New Password'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
