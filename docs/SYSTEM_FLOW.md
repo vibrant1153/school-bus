@@ -262,16 +262,35 @@ If the driver is stuck in traffic:
 3. An `alert_events` row is written: `event_type = 'delayed'`, `payload_json = { reason: 'traffic' }`.
 4. All parents on this route see in their Alerts: *"Bus 1 is running approximately 15 minutes late due to traffic."*
 
-#### Ending the Trip
+#### Ending the Trip (Normal & Fail-Safe Recovery)
 
-Driver taps **"End Trip"** → confirms:
-- `trips` row updated: `status = 'completed'`, `ended_at = now()`.
-- A `trip_summaries` row is written with:
-  - `total_pings` — how many GPS pings were received.
-  - `longest_gap_seconds` — longest interruption in GPS.
-  - `avg_accuracy_meters` — average GPS accuracy.
-- `alert_events` row: `event_type = 'tripCompleted'`.
-- Parents see: *"Bus 1 has completed the morning route."*
+**Normal Path:**
+1. Driver arrives at the school or final stop, taps **"End Trip"** → confirms:
+2. `trips` row updated: `status = 'completed'`, `ended_at = now()`.
+3. `bus_locations_latest` cleared for the bus so parents no longer see an active vehicle on route.
+4. A `trip_summaries` row is written with:
+   - `total_pings` — how many GPS pings were received.
+   - `longest_gap_seconds` — longest interruption in GPS.
+   - `avg_accuracy_meters` — average GPS accuracy.
+5. `alert_events` row: `event_type = 'tripCompleted'`.
+6. Parents see: *"Bus 1 has completed the morning route."*
+
+**What if the Driver Forgot to Click "End Trip" or Went Out of the App? (Fail-Safe Recovery)**
+If a driver closes the browser, locks their phone, or leaves the bus without tapping "End Trip", SchoolBus Connect provides a 3-layer safety net:
+
+1. **Driver Portal Auto-Detection & Recovery Card (`/driver`):**
+   - When the driver reopens the app, the system checks for any in-progress trip on their assigned bus.
+   - Instead of stranding the driver with a locked "Start Trip" button, a prominent **Unfinished Trip Banner** appears:
+     - **"▶ Resume Trip & GPS"**: Returns straight to the live transmission screen and re-engages wake lock.
+     - **"🛑 End & Complete Trip Now"**: Immediately ends the trip, closes the database lock, and resets the bus for the next route.
+   - If a new trip start is attempted while another is active, a **"Force End Previous Active Trip"** button is directly provided.
+
+2. **School Manager Remote Override (`/manager` Dashboard):**
+   - In the **Today's Trips** table on the School Manager Dashboard, every in-progress trip has an **"🛑 End Trip"** button in the Action column.
+   - If a driver went home, lost their phone, or forgot, the school administrator can end and complete the trip with 1 click from their desk, clearing the live tracking dot for parents and freeing the bus for the afternoon run.
+
+3. **Automated Stale Trip Cleanup:**
+   - The database routine checks for stale trips (>12 hours old or from a previous school day) and automatically transitions them to `completed` upon next session check, ensuring no bus is ever permanently stuck in an active state.
 
 ---
 

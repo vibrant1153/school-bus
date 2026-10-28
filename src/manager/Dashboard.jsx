@@ -98,7 +98,28 @@ function LocationHistoryCard({ onPurge }) {
 }
 
 export default function Dashboard() {
-  const { todayTrips, metrics, loading, purgeLocationHistory } = useManagerData()
+  const { todayTrips, metrics, loading, purgeLocationHistory, endTrip } = useManagerData()
+  const [endingTripId, setEndingTripId] = useState(null)
+  const [actionError, setActionError] = useState(null)
+  const [actionSuccess, setActionSuccess] = useState(null)
+
+  async function handleEndTrip(tripId, busLabel) {
+    if (!window.confirm(`Are you sure you want to end and complete the trip for ${busLabel}? This will stop live tracking and free the bus for subsequent trips.`)) {
+      return
+    }
+    setEndingTripId(tripId)
+    setActionError(null)
+    setActionSuccess(null)
+    try {
+      await endTrip(tripId)
+      setActionSuccess(`Trip for ${busLabel} successfully marked as completed.`)
+      setTimeout(() => setActionSuccess(null), 5000)
+    } catch (err) {
+      setActionError(err.message || 'Failed to complete trip.')
+    } finally {
+      setEndingTripId(null)
+    }
+  }
 
   const healthItems = []
   if (metrics.studentsWithoutStops > 0) {
@@ -142,6 +163,20 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* Action Messages */}
+      {actionSuccess && (
+        <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-xs font-bold text-green-800 shadow-xs flex items-center justify-between">
+          <span>✓ {actionSuccess}</span>
+          <button type="button" onClick={() => setActionSuccess(null)} className="text-green-800 hover:opacity-75">✕</button>
+        </div>
+      )}
+      {actionError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-800 shadow-xs flex items-center justify-between">
+          <span>✕ {actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="text-red-800 hover:opacity-75">✕</button>
+        </div>
+      )}
+
       <div className="grid gap-6 xl:grid-cols-3">
         {/* Today's Trips Table */}
         <section className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-xs xl:col-span-2">
@@ -153,7 +188,7 @@ export default function Dashboard() {
           {todayTrips.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted">No trips recorded for today yet.</p>
           ) : (
-            <table className="w-full min-w-[500px] text-left text-[14px]">
+            <table className="w-full min-w-[550px] text-left text-[14px]">
               <thead className="border-b border-gray-100 text-xs font-semibold text-muted uppercase tracking-wider">
                 <tr>
                   <th scope="col" className="pb-3 font-medium">Bus</th>
@@ -161,13 +196,14 @@ export default function Dashboard() {
                   <th scope="col" className="pb-3 font-medium">Driver</th>
                   <th scope="col" className="pb-3 font-medium">Status</th>
                   <th scope="col" className="pb-3 font-medium">Started At</th>
+                  <th scope="col" className="pb-3 font-medium">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {todayTrips.map((trip) => (
                   <tr key={trip.id} className="hover:bg-gray-50/75">
                     <td className="py-3.5 font-bold text-ink">
-                      Bus {trip.buses?.bus_number || '—'}
+                      {trip.buses?.name || `Bus ${trip.buses?.bus_number || '—'}`}
                     </td>
                     <td className="py-3.5 text-ink">
                       {trip.routes?.name || 'Route'} ({trip.direction})
@@ -180,6 +216,22 @@ export default function Dashboard() {
                     </td>
                     <td className="py-3.5 text-xs font-mono text-muted">
                       {trip.started_at ? new Date(trip.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="py-3.5">
+                      {trip.status === 'in_progress' ? (
+                        <button
+                          type="button"
+                          disabled={endingTripId === trip.id}
+                          onClick={() => handleEndTrip(trip.id, trip.buses?.name || `Bus ${trip.buses?.bus_number || ''}`)}
+                          className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 shadow-xs hover:bg-red-600 hover:text-white transition-all disabled:opacity-50"
+                          title="Force end trip if driver forgot to complete it"
+                        >
+                          <span>🛑</span>
+                          <span>{endingTripId === trip.id ? 'Ending…' : 'End Trip'}</span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

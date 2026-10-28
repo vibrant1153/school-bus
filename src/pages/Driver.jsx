@@ -114,18 +114,22 @@ export default function Driver() {
 
         if (activeTrips && activeTrips.length > 0) {
           const active = activeTrips[0]
-          if (active.trip_date === todayStr) {
-            // Today's trip is already in progress: resume it directly
+          const hoursAgo = active.started_at
+            ? (Date.now() - new Date(active.started_at).getTime()) / (1000 * 60 * 60)
+            : 0
+
+          // If trip is from today or started within the last 12 hours, keep it as active
+          if (active.trip_date === todayStr || hoursAgo < 12) {
             if (!cancelled) {
               setActiveTrip(active)
               setPhase('running')
-              const st = new Date(active.started_at).getTime()
+              const st = new Date(active.started_at || Date.now()).getTime()
               setStartedAt(st)
               setNow(Date.now())
             }
             return
-          } else if (active.trip_date < todayStr) {
-            // Stale unended trip from a previous day: auto-complete it to clear the bus lock
+          } else {
+            // Stale unended trip from a previous day (>12h ago): auto-complete it to clear bus lock
             console.warn(`Auto-completing stale trip ${active.id} from ${active.trip_date}`)
             await supabase.rpc('end_trip', { p_trip_id: active.id })
           }
@@ -379,6 +383,30 @@ export default function Driver() {
     }
   }
 
+  async function handleEndAnyActiveTrip() {
+    setSubmitting(true)
+    setTripError(null)
+    try {
+      const { data: conflicts } = await supabase
+        .from('trips')
+        .select('id, bus_id')
+        .eq('status', 'in_progress')
+      if (conflicts && conflicts.length > 0) {
+        for (const c of conflicts) {
+          await supabase.rpc('end_trip', { p_trip_id: c.id })
+        }
+      }
+      setActiveTrip(null)
+      setTripError(null)
+      window.location.reload()
+    } catch (err) {
+      console.error('Failed to force end trip:', err)
+      setTripError(err.message || 'Failed to end previous trip.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function submitDelay(reason) {
     if (!activeTrip?.id) return
     setSubmitting(true)
@@ -449,9 +477,56 @@ export default function Driver() {
           <h1 className="mt-3 text-3xl font-bold">{t('driver.ready.title')}</h1>
         </div>
 
+        {/* Unfinished Trip Recovery Card */}
+        {activeTrip && activeTrip.status === 'in_progress' && (
+          <div className="rounded-2xl border-2 border-amber bg-amber/15 p-4 flex flex-col gap-3 shadow-lg">
+            <div className="flex items-center gap-2 text-amber-300 font-extrabold text-sm sm:text-base">
+              <span className="text-xl">⚠️</span>
+              <span>Trip Currently in Progress!</span>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-200 leading-relaxed">
+              A trip for <strong className="text-white">{busRoute}</strong> is marked active in the system. You can resume live GPS broadcast or end it now to release the bus.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase('running')
+                  const st = new Date(activeTrip.started_at || Date.now()).getTime()
+                  setStartedAt(st)
+                  setNow(Date.now())
+                }}
+                className="flex-1 rounded-xl bg-go py-3 px-4 text-center font-bold text-white shadow-md hover:opacity-95 active:scale-95 transition-all text-xs sm:text-sm flex items-center justify-center gap-2"
+              >
+                <span>▶</span>
+                <span>Resume Trip & GPS</span>
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={endTrip}
+                className="flex-1 rounded-xl bg-danger py-3 px-4 text-center font-bold text-white shadow-md hover:opacity-95 active:scale-95 transition-all text-xs sm:text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span>🛑</span>
+                <span>{submitting ? 'Ending…' : 'End & Complete Trip Now'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {tripError && (
-          <div className="rounded-xl bg-danger/20 border border-danger p-3 text-sm text-red-200">
-            ⚠️ {tripError}
+          <div className="rounded-xl bg-danger/20 border border-danger p-3.5 text-sm text-red-200 flex flex-col gap-2">
+            <p>⚠️ {tripError}</p>
+            {tripError.toLowerCase().includes('active') && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleEndAnyActiveTrip}
+                className="self-start rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 active:scale-95 transition-all shadow-xs"
+              >
+                🛑 Force End Previous Active Trip Now
+              </button>
+            )}
           </div>
         )}
 

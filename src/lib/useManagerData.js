@@ -359,6 +359,15 @@ export function useManagerData() {
     return { success: true, bus: newBus }
   }
 
+  // Mutation 5: Force End Trip (RPC end_trip) - allows manager to complete trip if driver forgot
+  async function endTrip(tripId) {
+    if (!tripId) throw new Error('Trip ID is required.')
+    const { error: endErr } = await supabase.rpc('end_trip', { p_trip_id: tripId })
+    if (endErr) throw endErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
   // Calculate Operational Metrics
   const onRoadCount = todayTrips.filter((t) => t.status === 'in_progress').length
   const studentsWithoutStops = students.filter((s) => !s.hasStop).length
@@ -385,6 +394,8 @@ export function useManagerData() {
     purgeLocationHistory,
     addStudent,
     addBus,
+    endTrip,
     refresh: () => setReloadTrigger((v) => v + 1),
   }
 }
+
