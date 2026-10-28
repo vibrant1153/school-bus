@@ -212,6 +212,8 @@ export function useManagerData() {
               fullName: s.full_name,
               grade: s.grade,
               isActive: s.is_active,
+              guardianId: guardian?.id || null,
+              guardianProfileId: guardian?.profile_id || null,
               parentName: guardian?.profiles?.full_name || 'No parent linked',
               parentPhone: guardian?.profiles?.phone || '',
               morningStop: morningStop ? morningStop.name : null,
@@ -368,6 +370,40 @@ export function useManagerData() {
     return { success: true }
   }
 
+  // Mutation 6: Delete Student from School Roster
+  async function deleteStudent(studentId) {
+    if (!studentId) throw new Error('Student ID is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    const { error: delErr } = await supabase
+      .from('students')
+      .delete()
+      .eq('id', studentId)
+      .eq('school_id', schoolId)
+
+    if (delErr) throw delErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 7: Unlink Parent/Guardian from Student
+  async function unlinkParent(guardianId) {
+    if (!guardianId) throw new Error('Guardian record ID is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    const { error: delErr } = await supabase
+      .from('guardians')
+      .delete()
+      .eq('id', guardianId)
+      .eq('school_id', schoolId)
+
+    if (delErr) throw delErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
   // Calculate Operational Metrics
   const onRoadCount = todayTrips.filter((t) => t.status === 'in_progress').length
   const studentsWithoutStops = students.filter((s) => !s.hasStop).length
@@ -395,7 +431,10 @@ export function useManagerData() {
     addStudent,
     addBus,
     endTrip,
+    deleteStudent,
+    unlinkParent,
     refresh: () => setReloadTrigger((v) => v + 1),
   }
 }
+
 

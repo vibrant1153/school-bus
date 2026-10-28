@@ -24,6 +24,13 @@ export default function OwnerDashboard() {
   const [purgeToast, setPurgeToast] = useState(null)
   const [purgeError, setPurgeError] = useState('')
 
+  // Delete School Modal state
+  const [deleteSchoolTarget, setDeleteSchoolTarget] = useState(null)
+  const [deletingSchool, setDeletingSchool] = useState(false)
+  const [deleteToast, setDeleteToast] = useState(null)
+  const [deleteError, setDeleteError] = useState('')
+  const [confirmCode, setConfirmCode] = useState('')
+
   async function handlePurgeLocations() {
     if (!purgeSchool) return
     setPurging(true)
@@ -43,6 +50,68 @@ export default function OwnerDashboard() {
       setPurgeError(err.message || 'Failed to purge location data')
     } finally {
       setPurging(false)
+    }
+  }
+
+  async function handleDeleteSchool(e) {
+    if (e) e.preventDefault()
+    if (!deleteSchoolTarget) return
+
+    if (confirmCode.trim().toUpperCase() !== deleteSchoolTarget.code.toUpperCase()) {
+      setDeleteError(`Please type "${deleteSchoolTarget.code}" exactly to confirm deletion.`)
+      return
+    }
+
+    setDeletingSchool(true)
+    setDeleteError('')
+
+    try {
+      // 1. Attempt via Supabase RPC delete_school
+      let rpcSucceeded = false
+      try {
+        const { error: rpcErr } = await supabase.rpc('delete_school', {
+          p_school_id: deleteSchoolTarget.id,
+        })
+        if (!rpcErr) {
+          rpcSucceeded = true
+        } else if (rpcErr.code !== 'PGRST202' && !rpcErr.message?.includes('schema cache')) {
+          // If RPC returned a business validation error (e.g. active trips), throw it
+          throw rpcErr
+        }
+      } catch (err) {
+        if (!err.message?.includes('schema cache') && err.code !== 'PGRST202') {
+          throw err
+        }
+      }
+
+      // 2. If RPC not yet installed in remote schema cache, fallback to Vercel Serverless Function
+      if (!rpcSucceeded) {
+        const session = (await supabase.auth.getSession())?.data?.session
+        const res = await fetch('/api/delete-school', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || ''}`,
+          },
+          body: JSON.stringify({ school_id: deleteSchoolTarget.id }),
+        })
+
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to delete school.')
+        }
+      }
+
+      setDeleteToast(`School "${deleteSchoolTarget.name}" (${deleteSchoolTarget.code}) was permanently deleted.`)
+      setDeleteSchoolTarget(null)
+      setConfirmCode('')
+      await loadDashboardData()
+      setTimeout(() => setDeleteToast(null), 6000)
+    } catch (err) {
+      console.error('Failed to delete school:', err)
+      setDeleteError(err.message || 'Failed to delete school.')
+    } finally {
+      setDeletingSchool(false)
     }
   }
 
@@ -153,6 +222,13 @@ export default function OwnerDashboard() {
           </div>
         )}
 
+        {deleteToast && (
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
+            <span>🗑️ {deleteToast}</span>
+            <button onClick={() => setDeleteToast(null)} className="text-red-800 hover:opacity-75">✕</button>
+          </div>
+        )}
+
         {/* Page Title & Actions */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -247,14 +323,28 @@ export default function OwnerDashboard() {
                         <td className="px-6 py-4 font-semibold text-ink">{m?.total_buses ?? '—'}</td>
                         <td className="px-6 py-4 font-semibold text-ink">{m?.total_students ?? '—'}</td>
                         <td className="px-6 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => { setPurgeSchool(school); setPurgeError('') }}
-                            className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-red-100 transition-colors"
-                            title="Delete location tracking data for this school"
-                          >
-                            🗑️ Purge Locations
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { setPurgeSchool(school); setPurgeError('') }}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                              title="Delete location tracking data for this school"
+                            >
+                              🧹 Purge Locations
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteSchoolTarget(school)
+                                setDeleteError('')
+                                setConfirmCode('')
+                              }}
+                              className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors shadow-xs"
+                              title="Permanently delete this school and its entire fleet roster"
+                            >
+                              🗑️ Delete School
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -359,7 +449,7 @@ export default function OwnerDashboard() {
 
       {/* Purge School Location Data Modal */}
       {purgeSchool && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-ink">Purge School Location Data</h3>
@@ -404,6 +494,89 @@ export default function OwnerDashboard() {
                 {purging ? 'Purging…' : 'Yes, Delete Location Data'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete School Confirmation Modal */}
+      {deleteSchoolTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-red-200">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100 text-lg">
+                  🗑️
+                </span>
+                <div>
+                  <h3 className="text-lg font-bold text-ink">Delete School</h3>
+                  <p className="text-xs text-muted font-mono">{deleteSchoolTarget.name} ({deleteSchoolTarget.code})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setDeleteSchoolTarget(null); setDeleteError(''); setConfirmCode('') }}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50/80 p-4 text-xs text-red-900">
+              <p className="font-bold text-red-950 flex items-center gap-1.5 mb-2">
+                <span>⚠️</span> <span>Irreversible Action: Permanent Platform Cascade</span>
+              </p>
+              <p className="text-red-800 leading-relaxed">
+                Deleting this school permanently removes it from the database and cascades across all connected data:
+              </p>
+              <ul className="mt-2 list-disc list-inside space-y-1 text-red-800/90 font-medium">
+                <li>All registered buses, license plates, and driver assignments</li>
+                <li>All transportation routes, stops, and schedules</li>
+                <li>All student records, parent links, and absence reports</li>
+                <li>All live trips, GPS breadcrumbs, and alert logs</li>
+                <li>Manager and staff accounts associated with this school</li>
+              </ul>
+            </div>
+
+            {deleteError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-100 p-3 text-xs font-bold text-red-900">
+                ⚠️ {deleteError}
+              </div>
+            )}
+
+            <form onSubmit={handleDeleteSchool} className="mt-5 flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-bold text-ink block mb-1">
+                  Type <span className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs font-extrabold text-red-700">{deleteSchoolTarget.code}</span> to confirm deletion:
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder={`Type "${deleteSchoolTarget.code}"`}
+                  value={confirmCode}
+                  onChange={(e) => setConfirmCode(e.target.value)}
+                  className="w-full rounded-xl border border-red-300 p-2.5 text-sm font-mono uppercase focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-200"
+                />
+              </div>
+
+              <div className="mt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setDeleteSchoolTarget(null); setDeleteError(''); setConfirmCode('') }}
+                  disabled={deletingSchool}
+                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deletingSchool || confirmCode.trim().toUpperCase() !== deleteSchoolTarget.code.toUpperCase()}
+                  className="rounded-xl bg-danger px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {deletingSchool ? 'Deleting School…' : 'Yes, Permanently Delete School'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
