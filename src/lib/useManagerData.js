@@ -11,6 +11,7 @@ export function useManagerData() {
   const [students, setStudents] = useState([])
   const [buses, setBuses] = useState([])
   const [routes, setRoutes] = useState([])
+  const [drivers, setDrivers] = useState([])
   const [todayTrips, setTodayTrips] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -48,6 +49,10 @@ export function useManagerData() {
             routeId: b.routeId,
           })))
           setRoutes(SAMPLE_ROUTES)
+          setDrivers([
+            { id: 'sample-driver-1', full_name: 'Abebe Kebede', phone: '+251911000001', role: 'driver' },
+            { id: 'sample-driver-2', full_name: 'Dawit Hailu', phone: '+251911000002', role: 'driver' },
+          ])
           setTodayTrips(SAMPLE_TRIPS)
           setAuditLogs([])
           setLoading(false)
@@ -149,7 +154,8 @@ export function useManagerData() {
               name,
               lat,
               lng,
-              sequence_morning
+              sequence_morning,
+              is_school
             )
           `)
           .eq('school_id', schoolId)
@@ -157,7 +163,19 @@ export function useManagerData() {
 
         if (routeErr) throw routeErr
 
-        // 5. Fetch Today's Trips
+        // 5. Fetch Drivers for this school
+        const { data: driverRows, error: driverErr } = await supabase
+          .from('profiles')
+          .select('id, full_name, phone, role, is_active')
+          .eq('school_id', schoolId)
+          .eq('role', 'driver')
+          .order('full_name')
+
+        if (!driverErr && driverRows) {
+          setDrivers(driverRows)
+        }
+
+        // 6. Fetch Today's Trips
         const { data: tripRows, error: tripErr } = await supabase
           .from('trips')
           .select(`
@@ -186,7 +204,7 @@ export function useManagerData() {
 
         if (tripErr) throw tripErr
 
-        // 6. Fetch Recent Audit Logs
+        // 7. Fetch Recent Audit Logs
         const { data: auditRows, error: auditErr } = await supabase
           .from('audit_log')
           .select('*')
@@ -225,7 +243,7 @@ export function useManagerData() {
           })
           setStudents(mappedStudents)
 
-          // Map buses
+          // Map buses with driverProfileId
           const mappedBuses = (busRows || []).map((b) => {
             const activeAssignment = b.bus_assignments?.find((ba) => ba.is_active)
             return {
@@ -235,6 +253,7 @@ export function useManagerData() {
               capacity: b.capacity,
               isActive: b.is_active,
               plateNumber: b.bus_plates?.[0]?.plate_number || '—',
+              driverProfileId: activeAssignment?.driver_profile_id || null,
               driverName: activeAssignment?.profiles?.full_name || null,
               driverPhone: activeAssignment?.profiles?.phone || null,
               routeId: activeAssignment?.route_id || null,
@@ -243,7 +262,13 @@ export function useManagerData() {
           })
           setBuses(mappedBuses)
 
-          setRoutes(routeRows || [])
+          // Map routes with sequenced stops
+          const mappedRoutes = (routeRows || []).map((r) => ({
+            ...r,
+            stops: (r.stops || []).sort((a, b) => (a.sequence_morning || 0) - (b.sequence_morning || 0)),
+          }))
+          setRoutes(mappedRoutes)
+
           setTodayTrips(tripRows || [])
           setIsLiveBackend(true)
           setLoading(false)
@@ -527,6 +552,137 @@ export function useManagerData() {
     return { success: true }
   }
 
+  // Mutation 11: Assign / Link Bus to Route & Driver
+  async function assignBusToRouteAndDriver({ busId, routeId, driverProfileId }) {
+    if (!busId) throw new Error('Bus is required.')
+    if (!routeId) throw new Error('Route is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    // Deactivate any existing active assignment for this bus
+    await supabase
+      .from('bus_assignments')
+      .update({ is_active: false })
+      .eq('bus_id', busId)
+      .eq('school_id', schoolId)
+
+    // Insert new active assignment
+    const { data, error: insertErr } = await supabase
+      .from('bus_assignments')
+      .insert({
+        school_id: schoolId,
+        bus_id: busId,
+        route_id: routeId,
+        driver_profile_id: driverProfileId || null,
+        is_active: true,
+      })
+      .select()
+      .single()
+
+    if (insertErr) throw insertErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true, assignment: data }
+  }
+
+  // Mutation 12: Add New Route
+  async function addRoute({ name, code, startTime }) {
+    if (!name?.trim()) throw new Error('Route name is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    let formattedTime = startTime?.trim() || '06:45:00'
+    if (formattedTime.length === 5) {
+      formattedTime = `${formattedTime}:00`
+    }
+
+    const { data, error: routeErr } = await supabase
+      .from('routes')
+      .insert({
+        school_id: schoolId,
+        name: name.trim(),
+        code: code?.trim() || null,
+        start_time: formattedTime,
+        is_active: true,
+      })
+      .select()
+      .single()
+
+    if (routeErr) throw routeErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true, route: data }
+  }
+
+  // Mutation 13: Add New Stop to Route
+  async function addStopToRoute({ routeId, name, lat, lng, isSchool, sequenceMorning }) {
+    if (!routeId) throw new Error('Route is required.')
+    if (!name?.trim()) throw new Error('Stop landmark name is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    let seq = Number(sequenceMorning)
+    if (!seq || seq <= 0) {
+      const targetRoute = routes.find((r) => r.id === routeId)
+      const existingStops = targetRoute?.stops || []
+      seq = existingStops.length + 1
+    }
+
+    const { data, error: stopErr } = await supabase
+      .from('stops')
+      .insert({
+        school_id: schoolId,
+        route_id: routeId,
+        name: name.trim(),
+        sequence_morning: seq,
+        lat: Number(lat) || 9.025,
+        lng: Number(lng) || 38.765,
+        has_pin: true,
+        is_school: Boolean(isSchool),
+      })
+      .select()
+      .single()
+
+    if (stopErr) throw stopErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true, stop: data }
+  }
+
+  // Mutation 14: Provision Driver Account
+  async function provisionDriver({ fullName, phone, email, tempPassword }) {
+    if (!schoolId) throw new Error('School ID is missing.')
+    if (!fullName?.trim()) throw new Error('Driver name is required.')
+    if (!phone?.trim() && !email?.trim()) {
+      throw new Error('Either driver phone number or email is required.')
+    }
+
+    const session = (await supabase.auth.getSession())?.data?.session
+    const token = session?.access_token
+    if (!token) throw new Error('Not authenticated')
+
+    const res = await fetch('/api/provision-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        school_id: schoolId,
+        role: 'driver',
+        full_name: fullName.trim(),
+        phone: phone?.trim() || undefined,
+        email: email?.trim()?.toLowerCase() || undefined,
+        temp_password: tempPassword?.trim() || undefined,
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to create driver account.')
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return data
+  }
+
   // Calculate Operational Metrics
   const onRoadCount = todayTrips.filter((t) => t.status === 'in_progress').length
   const studentsWithoutStops = students.filter((s) => !s.hasStop).length
@@ -537,6 +693,7 @@ export function useManagerData() {
     students,
     buses,
     routes,
+    drivers,
     todayTrips,
     auditLogs,
     metrics: {
@@ -559,6 +716,10 @@ export function useManagerData() {
     assignStudentStop,
     linkParentToStudent,
     initializeDefaultRoutesAndBuses,
+    assignBusToRouteAndDriver,
+    addRoute,
+    addStopToRoute,
+    provisionDriver,
     refresh: () => setReloadTrigger((v) => v + 1),
   }
 }
