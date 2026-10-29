@@ -404,6 +404,129 @@ export function useManagerData() {
     return { success: true }
   }
 
+  // Mutation 8: Assign Student to a Bus Stop (Morning & Afternoon)
+  async function assignStudentStop({ studentId, stopId }) {
+    if (!studentId || !stopId) throw new Error('Student and Stop are required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    // upsert morning and afternoon stop for this student
+    const rows = [
+      { school_id: schoolId, student_id: studentId, stop_id: stopId, direction: 'morning' },
+      { school_id: schoolId, student_id: studentId, stop_id: stopId, direction: 'afternoon' },
+    ]
+
+    const { error: upsertErr } = await supabase
+      .from('student_stops')
+      .upsert(rows, { onConflict: 'student_id,direction' })
+
+    if (upsertErr) throw upsertErr
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 9: Provision / Link Parent to Student
+  async function linkParentToStudent({ studentId, fullName, email, phone, relationship, tempPassword }) {
+    if (!studentId) throw new Error('Student ID is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+    if (!email?.trim() && !phone?.trim()) {
+      throw new Error('Either parent email or parent phone number is required.')
+    }
+
+    const session = (await supabase.auth.getSession())?.data?.session
+    const token = session?.access_token
+    if (!token) throw new Error('Not authenticated')
+
+    const res = await fetch('/api/provision-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        school_id: schoolId,
+        role: 'parent',
+        student_id: studentId,
+        full_name: fullName?.trim() || 'Parent Guardian',
+        email: email?.trim()?.toLowerCase() || undefined,
+        phone: phone?.trim() || undefined,
+        relationship: relationship || 'Parent',
+        temp_password: tempPassword?.trim() || undefined,
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to link parent account.')
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return data
+  }
+
+  // Mutation 10: 1-Click Initialize Standard Routes, Stops & Bus Fleet for New School
+  async function initializeDefaultRoutesAndBuses() {
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    // 1. Create Route 1
+    const { data: route1, error: r1Err } = await supabase
+      .from('routes')
+      .insert({
+        school_id: schoolId,
+        name: 'Route 1 - Bole & Atlas Line',
+        code: 'RT-01',
+        start_time: '06:45:00',
+        is_active: true,
+      })
+      .select('id')
+      .single()
+
+    if (r1Err) throw r1Err
+
+    // 2. Create Stops for Route 1
+    const stopsR1 = [
+      { school_id: schoolId, route_id: route1.id, name: 'Bole Medhanealem Gate', sequence_morning: 1, lat: 9.0010, lng: 38.7845, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route1.id, name: 'Atlas Hotel Junction', sequence_morning: 2, lat: 9.0125, lng: 38.7750, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route1.id, name: 'Rwanda Embassy Roundabout', sequence_morning: 3, lat: 9.0180, lng: 38.7700, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route1.id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
+    ]
+    const { error: s1Err } = await supabase.from('stops').insert(stopsR1)
+    if (s1Err) throw s1Err
+
+    // 3. Create Route 2
+    const { data: route2, error: r2Err } = await supabase
+      .from('routes')
+      .insert({
+        school_id: schoolId,
+        name: 'Route 2 - CMC & Megenagna Line',
+        code: 'RT-02',
+        start_time: '06:40:00',
+        is_active: true,
+      })
+      .select('id')
+      .single()
+
+    if (r2Err) throw r2Err
+
+    // 4. Create Stops for Route 2
+    const stopsR2 = [
+      { school_id: schoolId, route_id: route2.id, name: 'CMC Michael Square', sequence_morning: 1, lat: 9.0255, lng: 38.8350, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route2.id, name: 'Megenagna Station', sequence_morning: 2, lat: 9.0185, lng: 38.8020, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route2.id, name: 'Signal Intersection', sequence_morning: 3, lat: 9.0220, lng: 38.7800, has_pin: true, is_school: false },
+      { school_id: schoolId, route_id: route2.id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
+    ]
+    const { error: s2Err } = await supabase.from('stops').insert(stopsR2)
+    if (s2Err) throw s2Err
+
+    // 5. Create Bus 1 if school has no buses yet
+    if (buses.length === 0) {
+      await addBus({ busNumber: '1', plateNumber: '3-ET-1001', capacity: 32 })
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
   // Calculate Operational Metrics
   const onRoadCount = todayTrips.filter((t) => t.status === 'in_progress').length
   const studentsWithoutStops = students.filter((s) => !s.hasStop).length
@@ -433,6 +556,9 @@ export function useManagerData() {
     endTrip,
     deleteStudent,
     unlinkParent,
+    assignStudentStop,
+    linkParentToStudent,
+    initializeDefaultRoutesAndBuses,
     refresh: () => setReloadTrigger((v) => v + 1),
   }
 }

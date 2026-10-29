@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
 
 export default function BusesRoutes() {
-  const { buses, routes, loading, addBus } = useManagerData()
+  const { buses, routes, loading, addBus, initializeDefaultRoutesAndBuses } = useManagerData()
 
   const [selectedBusId, setSelectedBusId] = useState(null)
   const [direction, setDirection] = useState('Morning')
@@ -14,6 +14,10 @@ export default function BusesRoutes() {
   const [capacity, setCapacity] = useState('32')
   const [adding, setAdding] = useState(false)
   const [modalError, setModalError] = useState(null)
+
+  // Route Initialization State
+  const [initializing, setInitializing] = useState(false)
+  const [initMsg, setInitMsg] = useState(null)
 
   const activeBus = buses.find((b) => b.id === selectedBusId) || buses[0] || null
   const activeRoute = routes.find((r) => r.id === activeBus?.routeId) || routes[0] || null
@@ -55,6 +59,46 @@ export default function BusesRoutes() {
 
   return (
     <div className="flex flex-col gap-6">
+      {initMsg && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-800">
+          ✓ {initMsg}
+        </div>
+      )}
+
+      {routes.length === 0 && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-200 text-xl shrink-0">
+              🗺️
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-amber-950">New School Route Setup</h3>
+              <p className="text-xs text-amber-900 mt-0.5">
+                This school has no routes or stops yet. Initialize standard school bus routes and stops with 1 click to start assigning students and running trips.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={initializing}
+            onClick={async () => {
+              setInitializing(true)
+              try {
+                await initializeDefaultRoutesAndBuses()
+                setInitMsg('Standard routes, stops, and fleet created successfully!')
+              } catch (err) {
+                alert(err.message || 'Failed to initialize routes.')
+              } finally {
+                setInitializing(false)
+              }
+            }}
+            className="rounded-xl bg-ink px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50 transition-all"
+          >
+            {initializing ? 'Setting up routes…' : '⚡ Initialize Standard Routes & Stops'}
+          </button>
+        </div>
+      )}
+
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-[28px] font-bold text-ink">Buses &amp; Routes</h1>

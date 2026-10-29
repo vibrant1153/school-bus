@@ -34,16 +34,20 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized: Invalid authentication session.' })
     }
 
-    // 2. Verify caller is active Platform Owner
+    // 2. Verify caller is active Platform Owner or Manager
     const adminSupabase = createClient(supabaseUrl, serviceRoleKey)
-    const { data: profile, error: profErr } = await adminSupabase
+    const { data: callerProfile, error: profErr } = await adminSupabase
       .from('profiles')
-      .select('id, role, is_active')
+      .select('id, school_id, role, is_active')
       .eq('id', user.id)
       .single()
 
-    if (profErr || !profile || profile.role !== 'owner' || !profile.is_active) {
-      return res.status(403).json({ error: 'Forbidden: Only active Platform Owners can provision school managers.' })
+    if (profErr || !callerProfile || !callerProfile.is_active) {
+      return res.status(403).json({ error: 'Forbidden: Inactive or unauthorized profile.' })
+    }
+
+    if (callerProfile.role !== 'owner' && callerProfile.role !== 'manager') {
+      return res.status(403).json({ error: 'Forbidden: Only owners and managers can provision user accounts.' })
     }
 
     // 3. Parse payload
@@ -55,13 +59,28 @@ export default async function handler(req, res) {
         // keep as is
       }
     }
-    const { school_id, full_name, email, phone, temp_password } = body || {}
+    const {
+      full_name,
+      email,
+      phone,
+      temp_password,
+      relationship = 'Parent',
+      student_id,
+    } = body || {}
+
+    let role = body?.role || 'manager'
+    let school_id = body?.school_id
+
+    // If caller is manager, force school_id to their school
+    if (callerProfile.role === 'manager') {
+      school_id = callerProfile.school_id
+      if (role !== 'parent' && role !== 'driver') {
+        role = 'parent'
+      }
+    }
 
     if (!school_id) {
       return res.status(400).json({ error: 'Missing required parameter: school_id' })
-    }
-    if (!email?.trim()) {
-      return res.status(400).json({ error: 'Missing required parameter: email' })
     }
 
     // 4. Verify school exists
@@ -75,30 +94,25 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'School not found.' })
     }
 
-    // 5. Invariant: Each school can only have one active manager account
-    const { data: existingManager } = await adminSupabase
-      .from('profiles')
-      .select('id, full_name, phone')
-      .eq('school_id', school_id)
-      .eq('role', 'manager')
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (existingManager) {
-      return res.status(409).json({
-        error: `"${school.name}" already has an assigned manager (${existingManager.full_name}). Each school operates under one primary manager account. You do not need to create another account—use "Reset Password" to update their login credentials.`
-      })
-    }
-
-    // 6. Generate secure temp password if not provided
-    const finalPassword = temp_password?.trim() || (() => {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$'
-      let pwd = ''
-      for (let i = 0; i < 10; i++) {
-        pwd += chars.charAt(Math.floor(Math.random() * chars.length))
+    // 5. If provisioning manager: Invariant of single manager per school
+    if (role === 'manager') {
+      if (callerProfile.role !== 'owner') {
+        return res.status(403).json({ error: 'Only Platform Owners can provision school managers.' })
       }
-      return pwd
-    })()
+      const { data: existingManager } = await adminSupabase
+        .from('profiles')
+        .select('id, full_name, phone')
+        .eq('school_id', school_id)
+        .eq('role', 'manager')
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (existingManager) {
+        return res.status(409).json({
+          error: `"${school.name}" already has an assigned manager (${existingManager.full_name}). Each school operates under one primary manager account. You do not need to create another account—use "Reset Password" to update their login credentials.`,
+        })
+      }
+    }
 
     // Normalize phone if provided
     let cleanPhone = null
@@ -118,14 +132,84 @@ export default async function handler(req, res) {
       }
     }
 
-    // 7. Create user in Supabase auth
+    // Resolve login email
+    let cleanEmail = email?.trim()?.toLowerCase() || ''
+    if (!cleanEmail && cleanPhone) {
+      cleanEmail = `user_${cleanPhone.replace('+', '')}@schoolbus.local`
+    }
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Either email or phone number is required.' })
+    }
+
+    // 6. Check if user profile already exists with this phone or email in this school
+    let existingProfile = null
+    if (cleanPhone) {
+      const { data: byPhone } = await adminSupabase
+        .from('profiles')
+        .select('id, school_id, full_name, phone, role')
+        .eq('phone', cleanPhone)
+        .maybeSingle()
+      if (byPhone) existingProfile = byPhone
+    }
+
+    // If parent already exists in this school, we can directly link them to the student!
+    if (existingProfile && role === 'parent' && student_id) {
+      if (existingProfile.school_id !== school_id) {
+        return res.status(409).json({
+          error: `This phone number (${cleanPhone}) is registered to a user in another school. In SchoolBus Connect, parent accounts are isolated per school.`,
+        })
+      }
+
+      // Link to student in guardians table
+      const { data: guardianRow, error: guardErr } = await adminSupabase
+        .from('guardians')
+        .upsert({
+          school_id,
+          student_id,
+          profile_id: existingProfile.id,
+          relationship: relationship || 'Parent',
+          alert_radius_m: 500,
+        }, { onConflict: 'student_id,profile_id' })
+        .select()
+        .single()
+
+      if (guardErr) {
+        return res.status(400).json({ error: `Could not link parent to student: ${guardErr.message}` })
+      }
+
+      return res.status(200).json({
+        success: true,
+        already_existed: true,
+        user_id: existingProfile.id,
+        full_name: existingProfile.full_name,
+        email: cleanEmail,
+        phone: cleanPhone,
+        role: 'parent',
+        linked_student_id: student_id,
+        guardian_id: guardianRow?.id,
+        message: `Linked existing parent "${existingProfile.full_name}" to student.`,
+      })
+    }
+
+    // 7. Generate secure temp password
+    const finalPassword = temp_password?.trim() || (() => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$'
+      let pwd = ''
+      for (let i = 0; i < 10; i++) {
+        pwd += chars.charAt(Math.floor(Math.random() * chars.length))
+      }
+      return pwd
+    })()
+
+    // 8. Create user in Supabase auth
     const { data: createdAuth, error: createAuthErr } = await adminSupabase.auth.admin.createUser({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password: finalPassword,
       email_confirm: true,
       user_metadata: {
         phone: cleanPhone,
-        full_name: full_name?.trim() || 'School Manager',
+        full_name: full_name?.trim() || (role === 'manager' ? 'School Manager' : 'Parent'),
       },
       app_metadata: {
         must_change_password: true,
@@ -136,7 +220,7 @@ export default async function handler(req, res) {
       const msg = createAuthErr.message?.toLowerCase() || ''
       if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
         return res.status(409).json({
-          error: `An account with the email "${email.trim().toLowerCase()}" already exists. Please choose a different email address.`
+          error: `An account with the email "${cleanEmail}" already exists. Please choose a different email or phone.`,
         })
       }
       return res.status(400).json({ error: `Could not create authentication account: ${createAuthErr.message}` })
@@ -144,58 +228,82 @@ export default async function handler(req, res) {
 
     const newUserId = createdAuth.user.id
 
-    // 8. Insert profile with role 'manager'
+    // 9. Insert profile
     const { error: profileInsertErr } = await adminSupabase
       .from('profiles')
       .insert({
         id: newUserId,
         school_id,
-        role: 'manager',
-        full_name: full_name?.trim() || 'School Manager',
+        role,
+        full_name: full_name?.trim() || (role === 'manager' ? 'School Manager' : 'Parent Guardian'),
         phone: cleanPhone,
         is_active: true,
       })
 
     if (profileInsertErr) {
-      // Rollback auth user
       await adminSupabase.auth.admin.deleteUser(newUserId)
       const errDetail = profileInsertErr.message || ''
       if (errDetail.includes('idx_profiles_phone_unique') || profileInsertErr.code === '23505') {
         return res.status(409).json({
-          error: `The phone number ${cleanPhone || phone} is already linked to another account in SchoolBus Connect. Please use a unique phone number or leave the phone field blank.`
+          error: `The phone number ${cleanPhone || phone} is already registered in SchoolBus Connect. Please use a unique phone number or leave the phone field blank.`,
         })
       }
       return res.status(400).json({
-        error: 'Could not create manager profile. Please check that the email and phone number are unique.'
+        error: `Could not create profile: ${profileInsertErr.message}`,
       })
     }
 
-    // 8. Log audit entry
+    // 10. If provisioning parent for a student, link them in guardians table!
+    let guardianId = null
+    if (role === 'parent' && student_id) {
+      const { data: gData, error: gErr } = await adminSupabase
+        .from('guardians')
+        .insert({
+          school_id,
+          student_id,
+          profile_id: newUserId,
+          relationship: relationship || 'Parent',
+          alert_radius_m: 500,
+        })
+        .select('id')
+        .single()
+
+      if (gErr) {
+        console.warn('Parent user created, but guardian link failed:', gErr.message)
+      } else {
+        guardianId = gData?.id
+      }
+    }
+
+    // 11. Log audit entry
     await adminSupabase.from('audit_log').insert({
       school_id,
-      performed_by: null,
+      performed_by: callerProfile.id,
       action: 'PROVISION_USER',
       details_json: {
         actor_id: user.id,
-        actor_role: 'owner',
-        created_user_id: newUserId,
-        created_role: 'manager',
-        email: email.trim().toLowerCase(),
-        full_name: full_name?.trim() || 'School Manager',
+        actor_role: callerProfile.role,
+        target_user_id: newUserId,
+        target_role: role,
+        target_email: cleanEmail,
+        student_id: student_id || null,
       },
     })
 
     return res.status(200).json({
       success: true,
       user_id: newUserId,
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       temp_password: finalPassword,
-      role: 'manager',
-      school_id,
+      full_name: full_name?.trim() || 'Parent Guardian',
+      role,
       school_name: school.name,
+      school_code: school.code,
+      linked_student_id: student_id || null,
+      guardian_id: guardianId,
     })
   } catch (err) {
-    console.error('Unhandled error in provision-user:', err)
-    return res.status(500).json({ error: err.message || 'Internal server error provisioning manager.' })
+    console.error('Unhandled error in provision-user handler:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error provisioning user.' })
   }
 }
