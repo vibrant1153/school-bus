@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
+import { ETHIOPIA_LANDMARKS, QUICK_CHIP_LANDMARKS, lookupEthiopiaLocation } from '../lib/ethiopiaLandmarks.js'
+import StopMapPicker from '../components/StopMapPicker.jsx'
 
 export default function BusesRoutes() {
   const {
@@ -35,7 +37,7 @@ export default function BusesRoutes() {
   const [addingRoute, setAddingRoute] = useState(false)
   const [routeError, setRouteError] = useState(null)
 
-  // Add Stop Modal State
+  // Add Stop Modal State (Ethiopia Landmark-First)
   const [showAddStopModal, setShowAddStopModal] = useState(false)
   const [stopName, setStopName] = useState('')
   const [stopSequence, setStopSequence] = useState('')
@@ -44,6 +46,10 @@ export default function BusesRoutes() {
   const [stopIsSchool, setStopIsSchool] = useState(false)
   const [addingStop, setAddingStop] = useState(false)
   const [stopError, setStopError] = useState(null)
+  const [selectedPreset, setSelectedPreset] = useState('')
+  const [showManualCoords, setShowManualCoords] = useState(false)
+  const [geocoding, setGeocoding] = useState(false)
+  const [geocodeMsg, setGeocodeMsg] = useState(null)
 
   // Assign Bus Modal State
   const [assigningBus, setAssigningBus] = useState(null) // bus object being assigned
@@ -127,6 +133,60 @@ export default function BusesRoutes() {
     } finally {
       setAddingRoute(false)
     }
+  }
+
+  // Open Add Stop Modal with clean Ethiopian defaults
+  function openAddStopModal() {
+    setStopName('')
+    setStopSequence((currentRoute?.stops?.length || 0) + 1)
+    setStopLat('9.0250')
+    setStopLng('38.7650')
+    setStopIsSchool(false)
+    setSelectedPreset('')
+    setShowManualCoords(false)
+    setGeocodeMsg(null)
+    setStopError(null)
+    setShowAddStopModal(true)
+  }
+
+  // Handle Preset Selection (1-Click)
+  function handleSelectPreset(presetName) {
+    const found = ETHIOPIA_LANDMARKS.find((l) => l.name === presetName)
+    if (found) {
+      setSelectedPreset(found.name)
+      setStopName(found.name)
+      setStopLat(found.lat.toString())
+      setStopLng(found.lng.toString())
+      setGeocodeMsg(`✓ Location locked to ${found.name} (${found.area})`)
+    }
+  }
+
+  // Handle Auto-Detect from typed place name
+  async function handleAutoFindLocation() {
+    if (!stopName?.trim()) return
+    setGeocoding(true)
+    setGeocodeMsg(null)
+    try {
+      const res = await lookupEthiopiaLocation(stopName)
+      if (res) {
+        setStopLat(res.lat.toString())
+        setStopLng(res.lng.toString())
+        setGeocodeMsg(`✓ Location detected (${res.name || stopName})`)
+      } else {
+        setGeocodeMsg('ℹ️ Saved with central Addis Ababa pin. You can tap on map to adjust.')
+      }
+    } catch {
+      setGeocodeMsg('ℹ️ Default Addis Ababa coordinates applied.')
+    } finally {
+      setGeocoding(false)
+    }
+  }
+
+  // Handle Map Pin Click
+  function handleMapLocationSelect(newLat, newLng) {
+    setStopLat(newLat.toString())
+    setStopLng(newLng.toString())
+    setGeocodeMsg(`✓ Pin adjusted from map (${newLat.toFixed(4)}, ${newLng.toFixed(4)})`)
   }
 
   // Handle Add Stop
@@ -515,10 +575,7 @@ export default function BusesRoutes() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStopSequence((currentRoute.stops?.length || 0) + 1)
-                      setShowAddStopModal(true)
-                    }}
+                    onClick={openAddStopModal}
                     className="rounded-xl bg-amber px-3.5 py-2 text-xs font-bold text-ink hover:opacity-95 shadow-xs"
                   >
                     + Add Stop
@@ -544,7 +601,7 @@ export default function BusesRoutes() {
                     <p className="mt-1 text-xs text-muted">Add landmark cluster stops for student pickups and dropoffs.</p>
                     <button
                       type="button"
-                      onClick={() => setShowAddStopModal(true)}
+                      onClick={openAddStopModal}
                       className="mt-3 rounded-xl bg-ink px-3.5 py-1.5 text-xs font-bold text-white shadow-xs"
                     >
                       + Add First Stop
@@ -760,11 +817,11 @@ export default function BusesRoutes() {
         </div>
       )}
 
-      {/* Modal 3: Add Stop to Route */}
+      {/* Modal 3: Add Stop to Route (Ethiopian Landmark-First & Map-Guided) */}
       {showAddStopModal && currentRoute && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
                 <h3 className="text-lg font-bold text-ink">Add Stop to Route</h3>
                 <p className="text-xs text-muted">Route: {currentRoute.name}</p>
@@ -772,7 +829,7 @@ export default function BusesRoutes() {
               <button
                 type="button"
                 onClick={() => setShowAddStopModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 font-bold p-1"
               >
                 ✕
               </button>
@@ -785,71 +842,194 @@ export default function BusesRoutes() {
             )}
 
             <form onSubmit={handleAddStop} className="mt-4 flex flex-col gap-4">
+              {/* 1. Fast Pick Preset Dropdown */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+                <label className="text-xs font-bold text-amber-950 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <span>⚡</span>
+                    <span>1-Click Popular Landmark Pick (Addis Ababa)</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wide bg-amber-200/70 text-amber-900 px-1.5 py-0.5 rounded font-bold">
+                    Zero Math
+                  </span>
+                </label>
+                <select
+                  value={selectedPreset}
+                  onChange={(e) => handleSelectPreset(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-amber-300 bg-white p-2.5 text-xs font-semibold text-ink focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                >
+                  <option value="">-- Choose from 35+ Popular Landmarks (Bole, CMC, Sarbet, etc.) --</option>
+                  {ETHIOPIA_LANDMARKS.map((lm) => (
+                    <option key={lm.name} value={lm.name}>
+                      [{lm.area}] {lm.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* 2. Quick-Tap Preset Chips */}
+                <div className="mt-2.5">
+                  <span className="text-[11px] font-semibold text-amber-900">Popular pickup spots:</span>
+                  <div className="mt-1 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto py-0.5">
+                    {QUICK_CHIP_LANDMARKS.map((name) => {
+                      const shortName = name.split('/')[0].split('(')[0].trim()
+                      const isSelected = stopName === name
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => handleSelectPreset(name)}
+                          className={
+                            'rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ' +
+                            (isSelected
+                              ? 'bg-ink text-white shadow-xs'
+                              : 'bg-white text-slate-800 border border-amber-200/80 hover:bg-amber-100')
+                          }
+                        >
+                          📍 {shortName}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Stop Landmark / Gate Name with Auto-Detect */}
               <div>
-                <label className="text-xs font-semibold text-ink">Stop Landmark Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sarbet Laphto Mall Gate or Atlas Total Station"
-                  value={stopName}
-                  onChange={(e) => setStopName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm text-ink"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-ink">
+                    Stop Landmark / Waiting Spot Name *
+                  </label>
+                  <button
+                    type="button"
+                    disabled={geocoding || !stopName?.trim()}
+                    onClick={handleAutoFindLocation}
+                    className="text-[11px] font-bold text-amber-700 hover:text-amber-900 disabled:opacity-40"
+                  >
+                    {geocoding ? 'Detecting…' : '🔍 Auto-Find Location'}
+                  </button>
+                </div>
+                <div className="relative mt-1">
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Atlas Hotel Gate, Sarbet Laphto, or CMC Michael Square"
+                    value={stopName}
+                    onChange={(e) => {
+                      setStopName(e.target.value)
+                      setSelectedPreset('')
+                    }}
+                    className="w-full rounded-lg border border-field p-2.5 text-sm text-ink pr-20"
+                  />
+                  {stopName?.trim() && (
+                    <button
+                      type="button"
+                      onClick={handleAutoFindLocation}
+                      disabled={geocoding}
+                      className="absolute right-2 top-2 rounded-md bg-amber/20 px-2 py-1 text-[10px] font-bold text-amber-950 hover:bg-amber/30"
+                    >
+                      {geocoding ? 'Finding…' : 'Find GPS'}
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-[11px] text-muted">
-                  Use clear, well-known landmarks (buildings, squares, or gates) so parents and drivers know the exact waiting point.
+                  Use clear, well-known landmarks (gates, crossroads, hotels) so parents and drivers know where to wait.
                 </p>
               </div>
 
+              {/* 4. Visual Mini Map with Click-to-Pin */}
               <div>
-                <label className="text-xs font-semibold text-ink">Morning Stop Sequence</label>
-                <input
-                  type="number"
-                  placeholder={`Default: ${(currentRoute.stops?.length || 0) + 1}`}
-                  value={stopSequence}
-                  onChange={(e) => setStopSequence(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm text-ink"
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-ink flex items-center gap-1.5">
+                    <span>🗺️</span>
+                    <span>Visual Map Pin</span>
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    Tap anywhere on map to fine-tune
+                  </span>
+                </div>
+                <StopMapPicker
+                  lat={parseFloat(stopLat)}
+                  lng={parseFloat(stopLng)}
+                  onLocationSelect={handleMapLocationSelect}
+                  landmarkName={stopName}
                 />
-                <p className="mt-1 text-[11px] text-muted">Order of pickup from stop #1 towards school.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-ink">Latitude</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    required
-                    value={stopLat}
-                    onChange={(e) => setStopLat(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-field p-2.5 font-mono text-sm text-ink"
-                  />
+              {/* 5. GPS Status Banner & Hidden Coordinates Toggle */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-900 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-200 text-emerald-800 text-[10px] font-bold">
+                    ✓
+                  </span>
+                  <span className="font-medium">
+                    {geocodeMsg || `GPS pin ready for "${stopName || 'this stop'}"`}
+                  </span>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-ink">Longitude</label>
+                <button
+                  type="button"
+                  onClick={() => setShowManualCoords(!showManualCoords)}
+                  className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline"
+                >
+                  {showManualCoords ? 'Hide numbers' : 'Show numbers'}
+                </button>
+              </div>
+
+              {/* Optional raw coordinates (collapsed by default for lazy managers) */}
+              {showManualCoords && (
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <div>
+                    <label className="text-[11px] font-semibold text-muted">Latitude</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      required
+                      value={stopLat}
+                      onChange={(e) => setStopLat(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-field p-2 font-mono text-xs text-ink bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-muted">Longitude</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      required
+                      value={stopLng}
+                      onChange={(e) => setStopLng(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-field p-2 font-mono text-xs text-ink bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 6. Sequence & School Campus Terminal */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-gray-100">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={stopIsSchool}
+                    onChange={(e) => setStopIsSchool(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-amber focus:ring-amber"
+                  />
+                  <span className="text-xs font-semibold text-ink">
+                    🏫 School Campus Terminal (Final Stop)
+                  </span>
+                </label>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <label className="text-xs text-muted font-medium">Pickup Seq:</label>
                   <input
                     type="number"
-                    step="0.0001"
-                    required
-                    value={stopLng}
-                    onChange={(e) => setStopLng(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-field p-2.5 font-mono text-sm text-ink"
+                    placeholder={`${(currentRoute.stops?.length || 0) + 1}`}
+                    value={stopSequence}
+                    onChange={(e) => setStopSequence(e.target.value)}
+                    className="w-14 rounded-lg border border-field p-1.5 text-center text-xs font-bold text-ink"
                   />
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={stopIsSchool}
-                  onChange={(e) => setStopIsSchool(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-amber focus:ring-amber"
-                />
-                <span className="text-xs font-medium text-ink">
-                  This stop is the School Campus Terminal (Final stop of route)
-                </span>
-              </label>
-
-              <div className="mt-2 flex justify-end gap-3">
+              {/* Actions */}
+              <div className="mt-2 flex justify-end gap-3 border-t border-gray-100 pt-3">
                 <button
                   type="button"
                   onClick={() => setShowAddStopModal(false)}
@@ -860,7 +1040,7 @@ export default function BusesRoutes() {
                 <button
                   type="submit"
                   disabled={addingStop}
-                  className="rounded-xl bg-amber px-5 py-2.5 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
+                  className="rounded-xl bg-amber px-6 py-2.5 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50 shadow-xs"
                 >
                   {addingStop ? 'Adding Stop…' : 'Add Stop'}
                 </button>
