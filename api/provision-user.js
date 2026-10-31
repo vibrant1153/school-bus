@@ -153,16 +153,26 @@ export default async function handler(req, res) {
       if (byPhone) existingProfile = byPhone
     }
 
-    // If parent already exists in this school, we can directly link them to the student!
-    if (existingProfile && role === 'parent' && student_id) {
-      if (existingProfile.school_id !== school_id) {
+    // If user profile already exists with this phone number
+    if (existingProfile) {
+      if (role === 'driver') {
+        const isSelf = existingProfile.id === callerProfile.id
         return res.status(409).json({
-          error: `This phone number (${cleanPhone}) is registered to a user in another school. In SchoolBus Connect, parent accounts are isolated per school.`,
+          error: isSelf
+            ? `The phone number ${cleanPhone} is already assigned to your manager account (${callerProfile.full_name}). Each school bus driver must have their own unique phone number for driver app login.`
+            : `The phone number ${cleanPhone} is already registered to "${existingProfile.full_name}" (${existingProfile.role}). Please provide a unique phone number for this driver.`,
         })
       }
 
-      // Link to student in guardians table
-      const { data: guardianRow, error: guardErr } = await adminSupabase
+      if (role === 'parent' && student_id) {
+        if (existingProfile.school_id !== school_id) {
+          return res.status(409).json({
+            error: `This phone number (${cleanPhone}) is registered to a user in another school. In SchoolBus Connect, parent accounts are isolated per school.`,
+          })
+        }
+
+        // Link to student in guardians table
+        const { data: guardianRow, error: guardErr } = await adminSupabase
         .from('guardians')
         .upsert({
           school_id,

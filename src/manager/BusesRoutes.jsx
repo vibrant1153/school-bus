@@ -1198,7 +1198,7 @@ export default function BusesRoutes() {
                   className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm text-ink"
                 />
                 <p className="mt-1 text-[11px] text-muted">
-                  Used for driver identification and phone login.
+                  Must be the driver's own unique mobile phone number (cannot be the manager's phone). Used for driver app login.
                 </p>
               </div>
 

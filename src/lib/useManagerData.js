@@ -462,31 +462,64 @@ export function useManagerData() {
     const token = session?.access_token
     if (!token) throw new Error('Not authenticated')
 
-    const res = await fetch('/api/provision-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        school_id: schoolId,
-        role: 'parent',
-        student_id: studentId,
-        full_name: fullName?.trim() || 'Parent Guardian',
-        email: email?.trim()?.toLowerCase() || undefined,
-        phone: phone?.trim() || undefined,
-        relationship: relationship || 'Parent',
-        temp_password: tempPassword?.trim() || undefined,
-      }),
-    })
-
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Failed to link parent account.')
+    const payload = {
+      school_id: schoolId,
+      role: 'parent',
+      student_id: studentId,
+      full_name: fullName?.trim() || 'Parent Guardian',
+      email: email?.trim()?.toLowerCase() || undefined,
+      phone: phone?.trim() || undefined,
+      relationship: relationship || 'Parent',
+      temp_password: tempPassword?.trim() || undefined,
     }
 
-    setReloadTrigger((v) => v + 1)
-    return data
+    let resData = null
+    let errorMsg = null
+
+    // 1. Try /api/provision-user
+    try {
+      const res = await fetch('/api/provision-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      resData = await res.json().catch(() => ({}))
+      if (res.ok && resData?.success) {
+        setReloadTrigger((v) => v + 1)
+        return resData
+      }
+      if (resData?.error) {
+        errorMsg = resData.error
+      }
+    } catch (fetchErr) {
+      console.warn('Vercel /api/provision-user fetch failed, attempting Edge Function fallback:', fetchErr)
+    }
+
+    // 2. Edge Function fallback
+    if (!resData?.success) {
+      try {
+        const { data: edgeData, error: fnErr } = await supabase.functions.invoke('provision-user', {
+          body: payload,
+        })
+        if (!fnErr && edgeData?.success) {
+          setReloadTrigger((v) => v + 1)
+          return edgeData
+        }
+        if (edgeData?.error) errorMsg = edgeData.error
+        else if (fnErr?.message) errorMsg = fnErr.message
+      } catch (edgeErr) {
+        console.warn('Edge function invoke also failed:', edgeErr)
+      }
+    }
+
+    if (errorMsg) {
+      throw new Error(errorMsg)
+    }
+
+    throw new Error('Unable to connect to the parent account service. Please check your internet connection and try again.')
   }
 
   // Mutation 10: 1-Click Initialize Standard Routes, Stops & Bus Fleet for New School
@@ -654,33 +687,80 @@ export function useManagerData() {
       throw new Error('Either driver phone number or email is required.')
     }
 
+    // Check if entered phone matches current manager's phone
+    if (phone?.trim()) {
+      let digits = phone.trim().replace(/\D/g, '')
+      if (digits.startsWith('09') || digits.startsWith('07')) digits = '251' + digits.slice(1)
+      else if ((digits.startsWith('9') || digits.startsWith('7')) && digits.length === 9) digits = '251' + digits
+      const formatted = digits.startsWith('+') ? digits : `+${digits}`
+
+      if (profile?.phone && (formatted === profile.phone || phone.trim() === profile.phone)) {
+        throw new Error(
+          `The phone number "${phone}" is already assigned to your manager account (${profile.full_name || 'kebede'}). School bus drivers must use their own unique mobile phone number to log into the driver app.`
+        )
+      }
+    }
+
     const session = (await supabase.auth.getSession())?.data?.session
     const token = session?.access_token
     if (!token) throw new Error('Not authenticated')
 
-    const res = await fetch('/api/provision-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        school_id: schoolId,
-        role: 'driver',
-        full_name: fullName.trim(),
-        phone: phone?.trim() || undefined,
-        email: email?.trim()?.toLowerCase() || undefined,
-        temp_password: tempPassword?.trim() || undefined,
-      }),
-    })
-
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Failed to create driver account.')
+    const payload = {
+      school_id: schoolId,
+      role: 'driver',
+      full_name: fullName.trim(),
+      phone: phone?.trim() || undefined,
+      email: email?.trim()?.toLowerCase() || undefined,
+      temp_password: tempPassword?.trim() || undefined,
     }
 
-    setReloadTrigger((v) => v + 1)
-    return data
+    let resData = null
+    let errorMsg = null
+
+    // 1. Try /api/provision-user first
+    try {
+      const res = await fetch('/api/provision-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      resData = await res.json().catch(() => ({}))
+      if (res.ok && resData?.success) {
+        setReloadTrigger((v) => v + 1)
+        return resData
+      }
+      if (resData?.error) {
+        errorMsg = resData.error
+      }
+    } catch (fetchErr) {
+      console.warn('Vercel /api/provision-user fetch failed, attempting Edge Function fallback:', fetchErr)
+    }
+
+    // 2. Edge Function fallback
+    if (!resData?.success) {
+      try {
+        const { data: edgeData, error: fnErr } = await supabase.functions.invoke('provision-user', {
+          body: payload,
+        })
+        if (!fnErr && edgeData?.success) {
+          setReloadTrigger((v) => v + 1)
+          return edgeData
+        }
+        if (edgeData?.error) errorMsg = edgeData.error
+        else if (fnErr?.message) errorMsg = fnErr.message
+      } catch (edgeErr) {
+        console.warn('Edge function invoke also failed:', edgeErr)
+      }
+    }
+
+    if (errorMsg) {
+      throw new Error(errorMsg)
+    }
+
+    throw new Error('Unable to connect to the driver account service. Please check your internet connection and try again.')
   }
 
   // Calculate Operational Metrics
