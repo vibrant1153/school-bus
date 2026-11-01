@@ -22,8 +22,11 @@ export default function Login() {
   // can kick out a driver who accidentally used the Parent Portal tab.
   const checkingRoleRef = useRef(false)
 
-  // First-time temporary password change state (stored in app_metadata)
-  const isFirstTimePasswordChange = Boolean(
+  // Explicit state ensuring temporary password modal stays open and never disappears prematurely
+  const [requirePasswordChange, setRequirePasswordChange] = useState(false)
+
+  // First-time temporary password change state (stored in app_metadata or user_metadata)
+  const isFirstTimePasswordChange = requirePasswordChange || Boolean(
     user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password
   )
   const [newPassword, setNewPassword] = useState('')
@@ -51,15 +54,22 @@ export default function Login() {
   }
 
   // Route authenticated user to their role destination.
-  // Skipped when handleSubmit is mid-flight doing a portal-tab role check.
+  // Skipped when handleSubmit is mid-flight or when a password change is required.
   useEffect(() => {
-    if (checkingRoleRef.current) return
-    if (user && role && !user.app_metadata?.must_change_password && !user.user_metadata?.must_change_password) {
+    if (checkingRoleRef.current || requirePasswordChange) return
+    if (user && role) {
+      const mustChange = Boolean(
+        user.app_metadata?.must_change_password || user.user_metadata?.must_change_password
+      )
+      if (mustChange) {
+        setRequirePasswordChange(true)
+        return
+      }
       const destination = location.state?.from?.pathname
       const target = getAuthorizedDestination(role, destination)
       navigate(target, { replace: true })
     }
-  }, [user, role, navigate, location])
+  }, [user, role, navigate, location, requirePasswordChange])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -117,8 +127,8 @@ export default function Login() {
     )
 
     if (mustChange) {
-      // Keep checkingRoleRef.current = true to prevent the auto-redirect useEffect from firing!
-      // The user stays on the login page and the "Set New Password" modal will remain open for them.
+      // Explicitly lock the password change modal open until the user saves a new password
+      setRequirePasswordChange(true)
       return
     }
 
@@ -146,6 +156,7 @@ export default function Login() {
     setChangingPassword(false)
 
     if (res.success) {
+      setRequirePasswordChange(false)
       checkingRoleRef.current = false
       const destination = location.state?.from?.pathname
       const userRole = role || user?.profile?.role

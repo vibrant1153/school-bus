@@ -138,6 +138,7 @@ serve(async (req: Request) => {
       user_metadata: {
         phone: cleanPhone,
         full_name: full_name?.trim() || '',
+        must_change_password: true,
       },
       app_metadata: {
         must_change_password: true,

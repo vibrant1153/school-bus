@@ -220,6 +220,7 @@ export default async function handler(req, res) {
       user_metadata: {
         phone: cleanPhone,
         full_name: full_name?.trim() || (role === 'manager' ? 'School Manager' : 'Parent'),
+        must_change_password: true,
       },
       app_metadata: {
         must_change_password: true,

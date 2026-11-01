@@ -79,7 +79,46 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
 
 export default function ParentHome() {
   const { t } = useI18n()
-  const { profile, signOut } = useAuth()
+  const { user, profile, signOut, updatePassword } = useAuth()
+
+  // Password change modal state
+  const mustChangePassword = Boolean(
+    user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password
+  )
+  const [showPassModal, setShowPassModal] = useState(false)
+  const [newPass, setNewPass] = useState('')
+  const [confirmPass, setConfirmPass] = useState('')
+  const [changingPass, setChangingPass] = useState(false)
+  const [passErr, setPassErr] = useState('')
+  const [passSuccess, setPassSuccess] = useState(false)
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault()
+    setPassErr('')
+    setPassSuccess(false)
+    if (newPass.length < 8) {
+      setPassErr('New password must be at least 8 characters long.')
+      return
+    }
+    if (newPass !== confirmPass) {
+      setPassErr('Passwords do not match.')
+      return
+    }
+    setChangingPass(true)
+    const res = await updatePassword(newPass)
+    setChangingPass(false)
+    if (res.success) {
+      setPassSuccess(true)
+      setNewPass('')
+      setConfirmPass('')
+      setTimeout(() => {
+        setShowPassModal(false)
+        setPassSuccess(false)
+      }, 1500)
+    } else {
+      setPassErr(res.error || 'Failed to update password. Please try again.')
+    }
+  }
   const {
     children,
     selectedChild,
@@ -171,6 +210,15 @@ export default function ParentHome() {
             <LanguageSwitch />
             <button
               type="button"
+              onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
+              aria-label="Change Password"
+              title="Change Password"
+              className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs hover:bg-gray-100 active:scale-95 transition-all"
+            >
+              <span>🔑</span>
+            </button>
+            <button
+              type="button"
               onClick={signOut}
               aria-label="Sign out"
               className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-600 shadow-xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
@@ -180,6 +228,20 @@ export default function ParentHome() {
             </button>
           </div>
         </header>
+
+        {/* Temporary Password Warning Banner */}
+        {mustChangePassword && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900 flex items-center justify-between gap-2 shadow-xs">
+            <span>⚠️ You are signed in with a temporary password.</span>
+            <button
+              type="button"
+              onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
+              className="rounded-lg bg-amber px-2.5 py-1 text-xs font-bold text-ink hover:opacity-90 transition-opacity"
+            >
+              Set Permanent Password →
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700">
@@ -434,6 +496,84 @@ export default function ParentHome() {
                   className="rounded-xl bg-amber px-5 py-2.5 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
                 >
                   {reportingAbsence ? t('home.absence.submitting') : t('home.absence.submit')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {/* Change Password Modal */}
+      {showPassModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔐</span>
+                <h3 className="text-lg font-bold text-ink">Change Account Password</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
+                className="text-gray-400 hover:text-gray-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Choose a secure permanent password for your parent portal account.
+            </p>
+
+            {passSuccess && (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+                ✓ Password updated successfully!
+              </div>
+            )}
+
+            {passErr && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                ✕ {passErr}
+              </div>
+            )}
+
+            <form onSubmit={handlePasswordChange} className="mt-4 flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-bold text-ink">New Password</label>
+                <input
+                  type="password"
+                  required
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-ink">Confirm Password</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPass}
+                  onChange={(e) => setConfirmPass(e.target.value)}
+                  placeholder="Repeat new password"
+                  className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
+                  disabled={changingPass}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingPass}
+                  className="rounded-xl bg-ink px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {changingPass ? 'Saving…' : 'Save Password'}
                 </button>
               </div>
             </form>

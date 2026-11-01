@@ -52,7 +52,7 @@ function Row({ label, ok, text }) {
 
 export default function Driver() {
   const { t } = useI18n()
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOut, updatePassword } = useAuth()
   const [phase, setPhase] = useState('ready')
   const [checking, setChecking] = useState(false)
   const [checked, setChecked] = useState(false)
@@ -63,12 +63,56 @@ export default function Driver() {
   const [startedAt, setStartedAt] = useState(0)
   const [fix, setFix] = useState(null)
   const [now, setNow] = useState(0)
+  const [assignment, setAssignment] = useState(null)
+  const [direction, setDirection] = useState(() => {
+    return new Date().getHours() < 12 ? 'morning' : 'afternoon'
+  })
   const [activeTrip, setActiveTrip] = useState(null)
   const [tripError, setTripError] = useState(null)
   const [delayStatus, setDelayStatus] = useState(null)
   const [delayModalOpen, setDelayModalOpen] = useState(false)
   const [selectedReason, setSelectedReason] = useState('traffic')
   const [submitting, setSubmitting] = useState(false)
+
+  // Password change modal state
+  const mustChangePassword = Boolean(
+    user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password
+  )
+  const [showPassModal, setShowPassModal] = useState(false)
+  const [newPass, setNewPass] = useState('')
+  const [confirmPass, setConfirmPass] = useState('')
+  const [changingPass, setChangingPass] = useState(false)
+  const [passErr, setPassErr] = useState('')
+  const [passSuccess, setPassSuccess] = useState(false)
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault()
+    setPassErr('')
+    setPassSuccess(false)
+    if (newPass.length < 8) {
+      setPassErr('New password must be at least 8 characters long.')
+      return
+    }
+    if (newPass !== confirmPass) {
+      setPassErr('Passwords do not match.')
+      return
+    }
+    setChangingPass(true)
+    const res = await updatePassword(newPass)
+    setChangingPass(false)
+    if (res.success) {
+      setPassSuccess(true)
+      setNewPass('')
+      setConfirmPass('')
+      setTimeout(() => {
+        setShowPassModal(false)
+        setPassSuccess(false)
+      }, 1500)
+    } else {
+      setPassErr(res.error || 'Failed to update password. Please try again.')
+    }
+  }
+
   const [allowComputerLocation, setAllowComputerLocationState] = useState(() => {
     try {
       return localStorage.getItem('schoolbus.allowComputerLocation') === 'true'
@@ -84,7 +128,7 @@ export default function Driver() {
   }
   const lockRef = useRef(null)
 
-  // Fetch driver's active or scheduled trip for today
+  // Fetch driver's active assignment and active or scheduled trip for today
   useEffect(() => {
     let cancelled = false
     async function loadDriverTrip() {
@@ -92,8 +136,29 @@ export default function Driver() {
       try {
         const todayStr = new Date().toISOString().split('T')[0]
 
-        // 1. Check if an active in-progress trip exists on the bus
-        const { data: activeTrips } = await supabase
+        // 1. Fetch driver's assigned bus and route
+        const { data: assignData } = await supabase
+          .from('bus_assignments')
+          .select(`
+            id,
+            school_id,
+            bus_id,
+            route_id,
+            buses ( id, name, capacity ),
+            routes ( id, name, code, start_time )
+          `)
+          .eq('driver_profile_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle()
+
+        if (assignData && !cancelled) {
+          setAssignment(assignData)
+        }
+
+        const busId = assignData?.bus_id
+
+        // 2. Check if an active in-progress trip exists on the bus
+        let activeQuery = supabase
           .from('trips')
           .select(`
             id,
@@ -109,6 +174,12 @@ export default function Driver() {
             routes ( name )
           `)
           .eq('status', 'in_progress')
+
+        if (busId) {
+          activeQuery = activeQuery.eq('bus_id', busId)
+        }
+
+        const { data: activeTrips } = await activeQuery
           .order('started_at', { ascending: false })
           .limit(1)
 
@@ -122,6 +193,7 @@ export default function Driver() {
           if (active.trip_date === todayStr || hoursAgo < 12) {
             if (!cancelled) {
               setActiveTrip(active)
+              if (active.direction) setDirection(active.direction)
               setPhase('running')
               const st = new Date(active.started_at || Date.now()).getTime()
               setStartedAt(st)
@@ -135,8 +207,8 @@ export default function Driver() {
           }
         }
 
-        // 2. Load today's trip
-        const { data, error } = await supabase
+        // 3. Load today's scheduled trip
+        let todayQuery = supabase
           .from('trips')
           .select(`
             id,
@@ -157,6 +229,12 @@ export default function Driver() {
           `)
           .in('status', ['scheduled', 'in_progress'])
           .eq('trip_date', todayStr)
+
+        if (busId) {
+          todayQuery = todayQuery.eq('bus_id', busId)
+        }
+
+        const { data, error } = await todayQuery
           .order('scheduled_start', { ascending: true })
           .limit(1)
           .maybeSingle()
@@ -168,6 +246,7 @@ export default function Driver() {
 
         if (!cancelled) {
           setActiveTrip(data || null)
+          if (data?.direction) setDirection(data.direction)
           if (data && data.status === 'in_progress' && data.started_at) {
             setPhase('running')
             const st = new Date(data.started_at).getTime()
@@ -318,31 +397,30 @@ export default function Driver() {
     setSubmitting(true)
     setTripError(null)
     try {
-      if (activeTrip?.id) {
-        const { error } = await supabase.rpc('start_trip', { p_trip_id: activeTrip.id })
-        if (error) {
-          // If conflict occurred with another active trip on this bus
-          if (error.message?.includes('idx_trips_one_active_per_bus')) {
-            console.warn('Resolving active trip conflict on bus...')
-            const { data: conflicts } = await supabase
-              .from('trips')
-              .select('id, trip_date')
-              .eq('bus_id', activeTrip.bus_id)
-              .eq('status', 'in_progress')
-            if (conflicts && conflicts.length > 0) {
-              for (const c of conflicts) {
-                await supabase.rpc('end_trip', { p_trip_id: c.id })
-              }
-              const { error: retryErr } = await supabase.rpc('start_trip', { p_trip_id: activeTrip.id })
-              if (retryErr) throw retryErr
-            } else {
-              throw error
-            }
-          } else {
-            throw error
-          }
-        }
+      const session = (await supabase.auth.getSession())?.data?.session
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated')
+
+      // 1. Call serverless endpoint to ensure trip record exists and start it
+      const res = await fetch('/api/start-trip', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ direction }),
+      })
+
+      const resData = await res.json().catch(() => ({}))
+
+      if (!res.ok || !resData?.success) {
+        throw new Error(resData?.error || 'Failed to start trip.')
       }
+
+      if (resData.trip) {
+        setActiveTrip(resData.trip)
+      }
+
       const t = Date.now()
       setStartedAt(t)
       setNow(t)
@@ -451,9 +529,92 @@ export default function Driver() {
     released: t('driver.wake.released'),
   }[wake]
 
-  const busRoute = activeTrip
-    ? `${activeTrip.buses?.name || 'Bus'} · ${activeTrip.routes?.name || activeTrip.direction}`
-    : `${t('home.bus', { n: 1 })} · ${t('driver.route.morning')}`
+  const busName = activeTrip?.buses?.name || assignment?.buses?.name || 'Bus'
+  const routeName = activeTrip?.routes?.name || assignment?.routes?.name || 'Route'
+  const dirLabel = (activeTrip?.direction || direction) === 'morning' ? 'Morning Run' : 'Afternoon Run'
+  const busRoute = `${busName} · ${routeName} (${dirLabel})`
+
+  const renderPasswordModal = () => {
+    if (!showPassModal) return null
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-ink shadow-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🔐</span>
+              <h3 className="text-lg font-bold">Change Password</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
+              className="text-gray-400 hover:text-gray-600 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Set a secure permanent password for your driver account.
+          </p>
+
+          {passSuccess && (
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+              ✓ Password updated successfully!
+            </div>
+          )}
+
+          {passErr && (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+              ✕ {passErr}
+            </div>
+          )}
+
+          <form onSubmit={handlePasswordChange} className="mt-4 flex flex-col gap-3">
+            <div>
+              <label className="text-xs font-bold text-ink">New Password</label>
+              <input
+                type="password"
+                required
+                value={newPass}
+                onChange={(e) => setNewPass(e.target.value)}
+                placeholder="At least 8 characters"
+                className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-ink">Confirm Password</label>
+              <input
+                type="password"
+                required
+                value={confirmPass}
+                onChange={(e) => setConfirmPass(e.target.value)}
+                placeholder="Repeat new password"
+                className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+              />
+            </div>
+
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
+                disabled={changingPass}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={changingPass}
+                className="rounded-xl bg-ink px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+              >
+                {changingPass ? 'Saving…' : 'Save Password'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   if (phase === 'ready') {
     return (
@@ -463,6 +624,15 @@ export default function Driver() {
             <p className="text-xs sm:text-sm font-semibold text-night-muted truncate max-w-[180px] sm:max-w-none">{busRoute}</p>
             <div className="flex items-center gap-2 shrink-0">
               <LanguageSwitch dark />
+              <button
+                type="button"
+                onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
+                aria-label="Change Password"
+                title="Change Password"
+                className="flex items-center gap-1 rounded-xl border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-white/20 active:scale-95 transition-all shadow-xs"
+              >
+                <span>🔑</span>
+              </button>
               <button
                 type="button"
                 onClick={signOut}
@@ -475,6 +645,51 @@ export default function Driver() {
             </div>
           </div>
           <h1 className="mt-3 text-3xl font-bold">{t('driver.ready.title')}</h1>
+        </div>
+
+        {/* Temporary Password Warning Banner */}
+        {mustChangePassword && (
+          <div className="rounded-xl border border-amber/40 bg-amber/15 p-3 text-xs font-semibold text-amber-200 flex items-center justify-between gap-2 shadow-xs">
+            <span>⚠️ Temporary password in use.</span>
+            <button
+              type="button"
+              onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
+              className="rounded-lg bg-amber px-2.5 py-1 text-xs font-bold text-ink hover:opacity-90 transition-opacity"
+            >
+              Set Password →
+            </button>
+          </div>
+        )}
+
+        {/* Trip Direction Selector */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-night-muted">Trip Direction:</label>
+          <div className="flex rounded-xl bg-night-card p-1 text-sm font-bold border border-night-line">
+            <button
+              type="button"
+              onClick={() => setDirection('morning')}
+              className={`flex flex-1 items-center justify-center gap-2 py-2 rounded-lg transition-all ${
+                direction === 'morning'
+                  ? 'bg-amber text-ink shadow-sm'
+                  : 'text-night-muted hover:text-white'
+              }`}
+            >
+              <span>☀️</span>
+              <span>Morning Pickup</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDirection('afternoon')}
+              className={`flex flex-1 items-center justify-center gap-2 py-2 rounded-lg transition-all ${
+                direction === 'afternoon'
+                  ? 'bg-amber text-ink shadow-sm'
+                  : 'text-night-muted hover:text-white'
+              }`}
+            >
+              <span>🌤️</span>
+              <span>Afternoon Drop-off</span>
+            </button>
+          </div>
         </div>
 
         {/* Unfinished Trip Recovery Card */}
@@ -568,6 +783,8 @@ export default function Driver() {
         <p className="text-center text-[13px] text-night-muted">
           {t('driver.startNote')} Real trips workflow enabled.
         </p>
+
+        {renderPasswordModal()}
       </main>
     )
   }
@@ -585,6 +802,15 @@ export default function Driver() {
         <div className="flex items-center gap-2 shrink-0">
           <p className="text-[12px] sm:text-[13px] font-bold text-go">● {t('driver.inProgress')}</p>
           <LanguageSwitch dark />
+          <button
+            type="button"
+            onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
+            aria-label="Change Password"
+            title="Change Password"
+            className="flex items-center gap-1 rounded-xl border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-white/20 active:scale-95 transition-all shadow-xs"
+          >
+            <span>🔑</span>
+          </button>
           <button
             type="button"
             onClick={signOut}
@@ -739,6 +965,8 @@ export default function Driver() {
           <p className="text-center text-[13px] text-night-muted">Trip state is tracked on server. GPS upload starts in Step 8.</p>
         </div>
       )}
+
+      {renderPasswordModal()}
     </main>
   )
 }
