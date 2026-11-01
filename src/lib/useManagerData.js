@@ -591,6 +591,8 @@ export function useManagerData() {
     if (!routeId) throw new Error('Route is required.')
     if (!schoolId) throw new Error('School ID is missing.')
 
+    const today = new Date().toISOString().split('T')[0]
+
     // Deactivate any existing active assignment for this bus
     await supabase
       .from('bus_assignments')
@@ -598,7 +600,7 @@ export function useManagerData() {
       .eq('bus_id', busId)
       .eq('school_id', schoolId)
 
-    // Insert new active assignment
+    // Insert new active assignment with effective_date
     const { data, error: insertErr } = await supabase
       .from('bus_assignments')
       .insert({
@@ -606,6 +608,7 @@ export function useManagerData() {
         bus_id: busId,
         route_id: routeId,
         driver_profile_id: driverProfileId || null,
+        effective_date: today,
         is_active: true,
       })
       .select()
