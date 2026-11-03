@@ -384,19 +384,48 @@ export default function Driver() {
     }
   }, [phase, activeTrip?.id])
 
+  const acquireWakeLock = async () => {
+    const status = await requestWakeLock(lockRef, () => setWake('released'))
+    setWake(status)
+    return status
+  }
+
   async function runChecks() {
     setChecking(true)
     setGps(await readGps())
-    setWake(await requestWakeLock(lockRef, () => setWake('released')))
+    await acquireWakeLock()
     setOnline(navigator.onLine)
     setChecked(true)
     setChecking(false)
   }
 
+  // Automatically run checks and request wake lock on initial mount
+  useEffect(() => {
+    runChecks()
+  }, [])
+
+  // Keep screen awake: listen for app coming back to foreground
+  useEffect(() => {
+    const handleReactivate = () => {
+      if (document.visibilityState === 'visible' && (phase === 'running' || phase === 'ready')) {
+        acquireWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleReactivate)
+    window.addEventListener('focus', handleReactivate)
+    return () => {
+      document.removeEventListener('visibilitychange', handleReactivate)
+      window.removeEventListener('focus', handleReactivate)
+    }
+  }, [phase])
+
   async function startTrip() {
     setSubmitting(true)
     setTripError(null)
     try {
+      // Re-acquire screen wake lock on start button tap gesture
+      await acquireWakeLock()
+
       const session = (await supabase.auth.getSession())?.data?.session
       const token = session?.access_token
       if (!token) throw new Error('Not authenticated')
@@ -510,7 +539,8 @@ export default function Driver() {
 
   const rawGpsGood = gps.accuracy !== null && gps.accuracy <= GOOD_ACCURACY_M
   const gpsOk = checked && gps.accuracy !== null && (rawGpsGood || allowComputerLocation)
-  const allOk = gpsOk && wake === 'on' && online
+  const wakeOk = wake === 'on' || wake === 'unsupported' || allowComputerLocation
+  const allOk = gpsOk && wakeOk && online
 
   const accText = (n) => `${Math.round(n)} ${t('unit.m')}`
   let gpsText = t('driver.notChecked')
@@ -751,6 +781,25 @@ export default function Driver() {
           <Row label={t('driver.row.internet')} ok={online} text={online ? t('driver.online') : t('driver.offline')} />
         </section>
 
+        {checked && wake !== 'on' && (
+          <div className="rounded-xl border border-amber/50 bg-amber/10 p-3.5 text-xs text-amber-200 flex flex-col gap-2">
+            <div className="flex items-center gap-2 font-bold text-amber-300">
+              <span className="text-base">☀️</span>
+              <span>Keep Screen Awake While Driving</span>
+            </div>
+            <p className="leading-relaxed text-gray-300">
+              Your phone screen will stay turned on during the entire route so live GPS tracking is never interrupted.
+            </p>
+            <button
+              type="button"
+              onClick={acquireWakeLock}
+              className="mt-1 rounded-lg bg-amber px-3.5 py-2 text-center text-xs font-bold text-ink shadow-sm hover:opacity-90 active:scale-98 transition-all"
+            >
+              ☀️ Turn On Screen Keep-Awake
+            </button>
+          </div>
+        )}
+
         {checked && !rawGpsGood && gps.accuracy !== null && !allowComputerLocation && (
           <div className="rounded-xl border border-amber/40 bg-amber/10 p-3.5 text-xs">
             <div className="flex items-center gap-2 font-bold text-amber-300">
@@ -852,15 +901,42 @@ export default function Driver() {
         </section>
       )}
 
+      {wake !== 'on' && (
+        <section className="flex flex-col gap-2 rounded-2xl bg-amber-500/20 border-2 border-amber-400 p-4 text-center">
+          <div className="flex items-center justify-center gap-2 text-amber-300 font-bold text-sm">
+            <span className="text-xl">⚠️</span>
+            <span>Screen Keep-Awake is Off</span>
+          </div>
+          <p className="text-xs text-gray-200">
+            Your phone screen may go to sleep. Tap below to keep screen illuminated while driving.
+          </p>
+          <button
+            type="button"
+            onClick={acquireWakeLock}
+            className="mt-1 rounded-xl bg-amber py-2.5 px-4 text-sm font-extrabold text-ink shadow-md active:scale-95 transition-all"
+          >
+            ☀️ Tap to Keep Screen Awake
+          </button>
+        </section>
+      )}
+
       <div className="flex gap-3">
         <div className="flex-1 rounded-[14px] bg-night-card p-3.5">
           <p className="text-[13px] text-night-muted">{t('driver.timeOnTrip')}</p>
           <p className="text-2xl font-extrabold">{clock(Math.max(0, Math.floor((now - startedAt) / 1000)))}</p>
         </div>
-        <div className="flex-1 rounded-[14px] bg-night-card p-3.5">
-          <p className="text-[13px] text-night-muted">{t('driver.screen')}</p>
+        <button
+          type="button"
+          onClick={acquireWakeLock}
+          title="Tap to toggle screen keep-awake"
+          className="flex-1 rounded-[14px] bg-night-card p-3.5 text-left border border-night-line hover:border-amber/60 active:scale-98 transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-[13px] text-night-muted">{t('driver.screen')}</p>
+            {wake !== 'on' && <span className="text-[10px] font-bold text-amber-400 uppercase">Tap to On</span>}
+          </div>
           <p className="text-2xl font-extrabold">{wake === 'on' ? t('driver.screen.on') : t('driver.screen.off')}</p>
-        </div>
+        </button>
       </div>
       <div className="flex justify-between items-center text-sm text-night-muted">
         <p>{online ? t('driver.internetOn') : t('driver.internetOff')}</p>

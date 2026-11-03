@@ -86,6 +86,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required parameter: school_id' })
     }
 
+    // Enforce mandatory student linking for parent accounts
+    if (role === 'parent' && !student_id) {
+      return res.status(400).json({
+        error: 'A student must be selected to link this parent account to. Every parent account in SchoolBus Connect must be connected to an enrolled student.',
+      })
+    }
+
     // 4. Verify school exists
     const { data: school, error: schoolErr } = await adminSupabase
       .from('schools')
@@ -95,6 +102,22 @@ export default async function handler(req, res) {
 
     if (schoolErr || !school) {
       return res.status(404).json({ error: 'School not found.' })
+    }
+
+    // If parent account, verify student exists in this school
+    if (role === 'parent' && student_id) {
+      const { data: studentCheck, error: studentCheckErr } = await adminSupabase
+        .from('students')
+        .select('id, full_name')
+        .eq('id', student_id)
+        .eq('school_id', school_id)
+        .maybeSingle()
+
+      if (studentCheckErr || !studentCheck) {
+        return res.status(400).json({
+          error: 'The selected student was not found in this school. Please select a valid student.',
+        })
+      }
     }
 
     // 5. If provisioning manager: Invariant of single manager per school
@@ -176,32 +199,37 @@ export default async function handler(req, res) {
 
         // Link to student in guardians table
         const { data: guardianRow, error: guardErr } = await adminSupabase
-        .from('guardians')
-        .upsert({
-          school_id,
-          student_id,
-          profile_id: existingProfile.id,
-          relationship: relationship || 'Parent',
-          alert_radius_m: 500,
-        }, { onConflict: 'student_id,profile_id' })
-        .select()
-        .single()
+          .from('guardians')
+          .upsert({
+            school_id,
+            student_id,
+            profile_id: existingProfile.id,
+            relationship: relationship || 'Parent',
+            alert_radius_m: 500,
+          }, { onConflict: 'student_id,profile_id' })
+          .select()
+          .single()
 
-      if (guardErr) {
-        return res.status(400).json({ error: `Could not link parent to student: ${guardErr.message}` })
+        if (guardErr) {
+          return res.status(400).json({ error: `Could not link parent to student: ${guardErr.message}` })
+        }
+
+        return res.status(200).json({
+          success: true,
+          already_existed: true,
+          user_id: existingProfile.id,
+          full_name: existingProfile.full_name,
+          email: cleanEmail,
+          phone: cleanPhone,
+          role: 'parent',
+          linked_student_id: student_id,
+          guardian_id: guardianRow?.id,
+          message: `Linked existing parent "${existingProfile.full_name}" to student.`,
+        })
       }
 
-      return res.status(200).json({
-        success: true,
-        already_existed: true,
-        user_id: existingProfile.id,
-        full_name: existingProfile.full_name,
-        email: cleanEmail,
-        phone: cleanPhone,
-        role: 'parent',
-        linked_student_id: student_id,
-        guardian_id: guardianRow?.id,
-        message: `Linked existing parent "${existingProfile.full_name}" to student.`,
+      return res.status(409).json({
+        error: `A user with the phone number ${cleanPhone} already exists (${existingProfile.full_name}).`,
       })
     }
 
@@ -269,7 +297,7 @@ export default async function handler(req, res) {
 
     // 10. If provisioning parent for a student, link them in guardians table!
     let guardianId = null
-    if (role === 'parent' && student_id) {
+    if (role === 'parent') {
       const { data: gData, error: gErr } = await adminSupabase
         .from('guardians')
         .insert({
@@ -283,10 +311,15 @@ export default async function handler(req, res) {
         .single()
 
       if (gErr) {
-        console.warn('Parent user created, but guardian link failed:', gErr.message)
-      } else {
-        guardianId = gData?.id
+        console.error('Parent user created, but guardian link failed:', gErr.message)
+        // Rollback created user and profile to ensure we never leave an unlinked parent account
+        await adminSupabase.from('profiles').delete().eq('id', newUserId)
+        await adminSupabase.auth.admin.deleteUser(newUserId)
+        return res.status(400).json({
+          error: `Could not link parent to the selected student: ${gErr.message}. Parent account creation cancelled.`,
+        })
       }
+      guardianId = gData?.id
     }
 
     // 11. Log audit entry

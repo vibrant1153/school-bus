@@ -215,9 +215,9 @@ export function useParentData() {
         if (!ignore) {
           console.error('Error loading parent data:', err)
           setError(err.message || 'Failed to load child information')
-          setChildren([SAMPLE_CHILD])
-          setSelectedChildId(SAMPLE_CHILD.id)
-          setIsLiveBackend(false)
+          setChildren([])
+          setSelectedChildId(null)
+          setIsLiveBackend(true)
           setLoading(false)
         }
       }

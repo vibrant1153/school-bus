@@ -351,6 +351,25 @@ export function useManagerData() {
     if (!busNumber) throw new Error('Bus number is required.')
     if (!schoolId) throw new Error('School ID is missing.')
 
+    const cleanPlate = plateNumber?.trim()?.toUpperCase()
+
+    // Pre-check for duplicate license plate within the school to provide fast, clear feedback
+    if (cleanPlate) {
+      const { data: existingPlate, error: checkErr } = await supabase
+        .from('bus_plates')
+        .select('id, plate_number, buses ( name )')
+        .eq('school_id', schoolId)
+        .eq('plate_number', cleanPlate)
+        .maybeSingle()
+
+      if (!checkErr && existingPlate) {
+        const assignedBus = existingPlate.buses?.name || 'another bus'
+        throw new Error(
+          `The license plate "${cleanPlate}" is already assigned to ${assignedBus}. Every bus must have a unique license plate.`
+        )
+      }
+    }
+
     const busName = typeof busNumber === 'string' && busNumber.toLowerCase().startsWith('bus')
       ? busNumber.trim()
       : `Bus ${busNumber}`
@@ -368,17 +387,22 @@ export function useManagerData() {
 
     if (busErr) throw busErr
 
-    if (newBus && plateNumber?.trim()) {
+    if (newBus && cleanPlate) {
       const { error: plateErr } = await supabase
         .from('bus_plates')
         .insert({
           bus_id: newBus.id,
           school_id: schoolId,
-          plate_number: plateNumber.trim().toUpperCase(),
+          plate_number: cleanPlate,
         })
 
       if (plateErr) {
-        console.warn('Bus created, but plate insert failed:', plateErr.message)
+        // Rollback bus creation so we never leave an orphaned bus without its license plate
+        await supabase.from('buses').delete().eq('id', newBus.id)
+        if (plateErr.code === '23505' || plateErr.message?.includes('duplicate') || plateErr.message?.includes('unique')) {
+          throw new Error(`The license plate "${cleanPlate}" is already in use by another bus.`)
+        }
+        throw new Error(`Could not register license plate "${cleanPlate}": ${plateErr.message}`)
       }
     }
 
