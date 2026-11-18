@@ -168,7 +168,7 @@ export default function Login() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6">
+    <main className={`mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6 transition-colors duration-300 ${loginMode === 'staff' ? 'bg-slate-900 text-white' : 'bg-white'}`}>
       {/* Header with App Branding and Language Switch */}
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -181,15 +181,15 @@ export default function Login() {
             </svg>
           </div>
           <div className="flex flex-col">
-            <span className="text-lg font-bold leading-tight text-ink">SchoolBus Connect</span>
-            <span className="text-[11px] font-medium text-muted">Student Transportation Safety</span>
+            <span className={`text-lg font-bold leading-tight ${loginMode === 'staff' ? 'text-white' : 'text-ink'}`}>SchoolBus Connect</span>
+            <span className={`text-[11px] font-medium ${loginMode === 'staff' ? 'text-slate-400' : 'text-muted'}`}>Student Transportation Safety</span>
           </div>
         </div>
         <LanguageSwitch />
       </header>
 
       {/* Segmented Mode Selector: Defaults 100% to Parent Portal */}
-      <div className="flex rounded-xl bg-gray-100 p-1 text-sm font-semibold">
+      <div className={`flex rounded-xl p-1 text-sm font-semibold ${loginMode === 'staff' ? 'bg-slate-800' : 'bg-gray-100'}`}>
         <button
           type="button"
           onClick={() => {
@@ -199,7 +199,7 @@ export default function Login() {
           className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-center transition-all ${
             loginMode === 'parent'
               ? 'bg-white text-ink shadow-sm'
-              : 'text-muted hover:text-ink'
+              : loginMode === 'staff' ? 'text-slate-400 hover:text-white' : 'text-muted hover:text-ink'
           }`}
         >
           <span>👨‍👩‍👧</span>
@@ -224,12 +224,12 @@ export default function Login() {
 
       {/* Welcome Title & Subtitle */}
       <section className="flex flex-col gap-1.5">
-        <h1 className="text-2xl font-bold tracking-tight text-ink">
+        <h1 className={`text-2xl font-bold tracking-tight ${loginMode === 'staff' ? 'text-white' : 'text-ink'}`}>
           {loginMode === 'parent'
             ? t('login.parentTitle') || 'Parent Sign In'
             : t('login.staffTitle') || 'Staff & Driver Sign In'}
         </h1>
-        <p className="text-sm leading-relaxed text-muted">
+        <p className={`text-sm leading-relaxed ${loginMode === 'staff' ? 'text-slate-300' : 'text-muted'}`}>
           {loginMode === 'parent'
             ? t('login.parentSubtitle') || 'Track your child\'s school bus in real time. Use the phone number or email registered with your school.'
             : t('login.staffSubtitle') || 'For assigned bus drivers, dispatchers, and school administration.'}
@@ -238,7 +238,7 @@ export default function Login() {
 
       {/* Error Banner */}
       {(localError || authError) && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 flex flex-col gap-2.5">
+        <div className={`rounded-xl border p-4 text-sm font-medium flex flex-col gap-2.5 ${loginMode === 'staff' ? 'border-red-700 bg-red-900/40 text-red-300' : 'border-red-200 bg-red-50 text-red-700'}`}>
           <p>{localError || authError}</p>
           {localError?.includes('Staff, Driver & Owner') && (
             <button
@@ -270,7 +270,7 @@ export default function Login() {
       {/* Login Form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="identifier" className="text-sm font-semibold text-ink">
+          <label htmlFor="identifier" className={`text-sm font-semibold ${loginMode === 'staff' ? 'text-slate-300' : 'text-ink'}`}>
             {loginMode === 'parent'
               ? t('login.parentIdentifier') || 'Phone number or email'
               : t('login.staffIdentifier') || 'Staff email or username'}
@@ -288,12 +288,12 @@ export default function Login() {
                 ? t('login.parentPlaceholder') || '09xxxxxxxx or email'
                 : t('login.staffPlaceholder') || 'driver@schoolbus.local'
             }
-            className="min-h-12 rounded-xl border border-field bg-white px-3.5 text-base text-ink placeholder:text-gray-400 focus:border-amber focus:outline-none"
+            className={`min-h-12 rounded-xl border px-3.5 text-base focus:outline-none ${loginMode === 'staff' ? 'bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 focus:border-amber' : 'border-field bg-white text-ink placeholder:text-gray-400 focus:border-amber'}`}
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-semibold text-ink">
+          <label htmlFor="password" className={`text-sm font-semibold ${loginMode === 'staff' ? 'text-slate-300' : 'text-ink'}`}>
             {t('login.password')}
           </label>
           <input
@@ -305,7 +305,7 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
             placeholder={t('login.passwordPlaceholder')}
-            className="min-h-12 rounded-xl border border-field bg-white px-3.5 text-base text-ink placeholder:text-gray-400 focus:border-amber focus:outline-none"
+            className={`min-h-12 rounded-xl border px-3.5 text-base focus:outline-none ${loginMode === 'staff' ? 'bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 focus:border-amber' : 'border-field bg-white text-ink placeholder:text-gray-400 focus:border-amber'}`}
           />
         </div>
 
@@ -342,7 +342,7 @@ export default function Login() {
             <p>{t('login.forgot')}</p>
           </div>
         ) : (
-          <p className="pt-1 text-xs leading-relaxed text-muted">
+          <p className={`pt-1 text-xs leading-relaxed ${loginMode === 'staff' ? 'text-slate-400' : 'text-muted'}`}>
             {t('login.forgot')}
           </p>
         )}
@@ -368,7 +368,7 @@ export default function Login() {
               setLoginMode('parent')
               setLocalError('')
             }}
-            className="text-xs font-semibold text-amber-700 hover:text-ink hover:underline"
+            className="text-xs font-semibold text-amber-400 hover:text-white hover:underline"
           >
             {t('login.switchToParent') || '← Back to Parent Sign In'}
           </button>
@@ -428,7 +428,7 @@ export default function Login() {
       )}
 
       {/* Demo Previews: segregated cleanly by mode */}
-      <footer className="mt-auto flex flex-col gap-2 border-t border-gray-100 pt-5">
+      <footer className={`mt-auto flex flex-col gap-2 border-t pt-5 ${loginMode === 'staff' ? 'border-slate-700' : 'border-gray-100'}`}>
         {loginMode === 'parent' ? (
           <div className="flex items-center justify-between text-xs text-muted">
             <span className="font-medium">1-Click Demo:</span>
@@ -457,16 +457,16 @@ export default function Login() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-2 text-xs text-muted">
+          <div className="flex flex-col gap-2 text-xs text-slate-400">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-ink">Staff & Owner 1-Click Demos:</span>
+              <span className="font-semibold text-slate-200">Staff & Owner 1-Click Demos:</span>
               <button
                 type="button"
                 onClick={() => {
                   setLoginMode('parent')
                   setLocalError('')
                 }}
-                className="font-medium text-amber-700 hover:underline"
+                className="font-medium text-amber-400 hover:underline"
               >
                 ← Parent Portal
               </button>
@@ -478,7 +478,7 @@ export default function Login() {
                   signInDemo('driver')
                   navigate('/driver')
                 }}
-                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 font-medium text-ink hover:bg-gray-100"
+                className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 font-medium text-slate-200 hover:bg-slate-700"
               >
                 🚌 Driver
               </button>
@@ -488,7 +488,7 @@ export default function Login() {
                   signInDemo('manager')
                   navigate('/manager')
                 }}
-                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 font-medium text-ink hover:bg-gray-100"
+                className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 font-medium text-slate-200 hover:bg-slate-700"
               >
                 🏫 Manager
               </button>
@@ -498,7 +498,7 @@ export default function Login() {
                   signInDemo('owner')
                   navigate('/owner')
                 }}
-                className="rounded-md border border-purple-300 bg-purple-50 px-3 py-1 font-bold text-purple-900 shadow-sm hover:bg-purple-100"
+                className="rounded-md border border-purple-500 bg-purple-900/50 px-3 py-1 font-bold text-purple-200 shadow-sm hover:bg-purple-900"
               >
                 👑 Owner
               </button>

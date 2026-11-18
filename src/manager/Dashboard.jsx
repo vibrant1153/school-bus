@@ -11,94 +11,8 @@ function statusChip(trip) {
   return <Chip>Scheduled</Chip>
 }
 
-function LocationHistoryCard({ onPurge }) {
-  const [confirming, setConfirming] = useState(false)
-  const [purging, setPurging] = useState(false)
-  const [lastPurgedMsg, setLastPurgedMsg] = useState(null)
-  const [purgeError, setPurgeError] = useState(null)
-
-  async function handlePurgeNow() {
-    setPurging(true)
-    setPurgeError(null)
-    try {
-      await onPurge()
-      setLastPurgedMsg(`Location history successfully purged at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
-      setConfirming(false)
-    } catch (err) {
-      setPurgeError(err.message || 'Failed to purge location history.')
-    } finally {
-      setPurging(false)
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border-l-[6px] border-amber bg-white p-5 shadow-xs">
-      <h2 className="mb-2 text-lg font-bold text-ink">Location History Retention</h2>
-      <p className="text-[14px] leading-relaxed text-ink">
-        To protect child safety and student privacy, location history of finished trips before today should be purged regularly. Trips in progress today are protected.
-      </p>
-
-      {lastPurgedMsg && (
-        <p className="mt-2 rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
-          ✓ {lastPurgedMsg}
-        </p>
-      )}
-
-      {purgeError && (
-        <p className="mt-2 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-          ✕ {purgeError}
-        </p>
-      )}
-
-      {confirming ? (
-        <div
-          className="mt-3 flex flex-col gap-3 rounded-xl bg-red-50 p-4"
-          role="alertdialog"
-          aria-label="Confirm deleting location history"
-        >
-          <p className="text-[14px] font-bold text-red-900">
-            Purge location history of finished trips before today?
-          </p>
-          <p className="text-xs text-red-800 leading-relaxed">
-            This cannot be undone. Active trips today are never touched. Aggregated trip summaries are kept for reporting.
-          </p>
-          <div className="flex gap-2.5">
-            <button
-              type="button"
-              disabled={purging}
-              onClick={handlePurgeNow}
-              className="rounded-lg bg-danger px-4 py-2 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
-            >
-              {purging ? 'Purging…' : 'Yes, purge now'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="mt-3 min-h-11 rounded-xl bg-amber px-4 text-xs font-bold text-ink hover:opacity-95 shadow-xs"
-        >
-          Purge Past Location History
-        </button>
-      )}
-
-      <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Location history older than 3 days is also automatically removed as a safety net. Each deletion action is recorded in the immutable school audit log.
-      </p>
-    </section>
-  )
-}
-
 export default function Dashboard() {
-  const { todayTrips, metrics, loading, purgeLocationHistory, endTrip } = useManagerData()
+  const { todayTrips, metrics, loading, endTrip } = useManagerData()
   const [endingTripId, setEndingTripId] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [actionSuccess, setActionSuccess] = useState(null)
@@ -240,10 +154,8 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Right Column: Location History Purge & Setup Health */}
+        {/* Right Column: Setup Health */}
         <div className="flex flex-col gap-6">
-          <LocationHistoryCard onPurge={purgeLocationHistory} />
-
           <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
             <h2 className="mb-3 text-lg font-bold text-ink">Setup Health Checklist</h2>
             {healthItems.length === 0 ? (

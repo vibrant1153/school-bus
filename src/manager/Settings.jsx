@@ -217,8 +217,105 @@ function ManagerSecurityForm() {
   )
 }
 
+function LocationHistoryCard({ onPurge }) {
+  const [confirming, setConfirming] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const [lastPurgedMsg, setLastPurgedMsg] = useState(null)
+  const [purgeError, setPurgeError] = useState(null)
+
+  async function handlePurgeNow() {
+    setPurging(true)
+    setPurgeError(null)
+    try {
+      await onPurge()
+      setLastPurgedMsg(`Location history successfully purged at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
+      setConfirming(false)
+    } catch (err) {
+      setPurgeError(err.message || 'Failed to purge location history.')
+    } finally {
+      setPurging(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col gap-3">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-lg">
+          🧹
+        </span>
+        <div>
+          <h2 className="text-base font-bold text-ink">Location History Retention &amp; Privacy</h2>
+          <p className="text-xs text-muted">Protect student privacy by clearing past GPS tracking data</p>
+        </div>
+      </div>
+
+      <p className="text-xs leading-relaxed text-ink">
+        To protect child safety and student privacy, location history of finished trips before today should be purged regularly. Trips in progress today are protected and will never be affected.
+      </p>
+
+      {lastPurgedMsg && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+          ✓ {lastPurgedMsg}
+        </p>
+      )}
+
+      {purgeError && (
+        <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+          ✕ {purgeError}
+        </p>
+      )}
+
+      {confirming ? (
+        <div
+          className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4"
+          role="alertdialog"
+          aria-label="Confirm deleting location history"
+        >
+          <p className="text-xs font-bold text-red-900">
+            Purge location history of finished trips before today?
+          </p>
+          <p className="text-xs text-red-800 leading-relaxed">
+            This cannot be undone. Active trips today are never touched. Aggregated trip summaries are preserved for reporting.
+          </p>
+          <div className="flex gap-2.5">
+            <button
+              type="button"
+              disabled={purging}
+              onClick={handlePurgeNow}
+              className="rounded-xl bg-danger px-4 py-2 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {purging ? 'Purging…' : 'Yes, purge now'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-900 hover:bg-amber-100 shadow-xs"
+          >
+            Purge Past Location History
+          </button>
+        </div>
+      )}
+
+      <p className="text-[11px] leading-relaxed text-muted">
+        Location history older than 3 days is also automatically removed as a safety net. Each deletion action is permanently recorded in the school audit log.
+      </p>
+    </section>
+  )
+}
+
 export default function Settings() {
-  const { school, updateSchoolSettings, loading } = useManagerData()
+  const { school, updateSchoolSettings, purgeLocationHistory, loading } = useManagerData()
 
   if (loading) {
     return (
@@ -244,6 +341,8 @@ export default function Settings() {
       />
 
       <ManagerSecurityForm />
+
+      <LocationHistoryCard onPurge={purgeLocationHistory} />
 
       <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5 text-xs text-muted">
         <p className="font-semibold text-ink">🔒 Security &amp; Audit Notice</p>

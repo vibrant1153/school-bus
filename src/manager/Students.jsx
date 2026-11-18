@@ -36,8 +36,13 @@ export default function Students() {
   const [parentPhone, setParentPhone] = useState('')
   const [parentRelationship, setParentRelationship] = useState('Parent')
   const [parentTempPassword, setParentTempPassword] = useState('')
-  const [assigning, setAssigning] = useState(false)
   const [assignError, setAssignError] = useState('')
+  const [savingStop, setSavingStop] = useState(false)
+  const [stopError, setStopError] = useState('')
+  const [stopSuccess, setStopSuccess] = useState('')
+  const [savingParent, setSavingParent] = useState(false)
+  const [parentError, setParentError] = useState('')
+  const [parentSuccess, setParentSuccess] = useState('')
   const [parentCredentials, setParentCredentials] = useState(null)
   const [copiedCreds, setCopiedCreds] = useState(false)
   const [initRoutesLoading, setInitRoutesLoading] = useState(false)
@@ -54,59 +59,88 @@ export default function Students() {
     setStudentToAssign(student)
     const initialRoute = student.routeId || (routes[0]?.id || '')
     setAssignRouteId(initialRoute)
-    setAssignStopId('')
+    setAssignStopId(student.stopId || '')
     setParentFullName(student.parentName !== 'No parent linked' ? student.parentName : '')
     setParentEmail('')
     setParentPhone(student.parentPhone || '')
     setParentRelationship('Parent')
     setParentTempPassword('')
     setAssignError('')
+    setStopError('')
+    setStopSuccess('')
+    setParentError('')
+    setParentSuccess('')
   }
 
-  async function handleAssignSubmit(e) {
-    e.preventDefault()
+  async function handleSaveStop(e) {
+    if (e) e.preventDefault()
     if (!studentToAssign) return
-    setAssigning(true)
-    setAssignError('')
-
+    if (!assignStopId) {
+      setStopError('Please select a bus stop from the list.')
+      return
+    }
+    setSavingStop(true)
+    setStopError('')
+    setStopSuccess('')
     try {
-      // 1. Assign bus stop if selected
-      if (assignStopId) {
-        await assignStudentStop({
-          studentId: studentToAssign.id,
-          stopId: assignStopId,
-        })
-      }
-
-      // 2. Link or provision parent if email or phone is provided
-      if (parentEmail.trim() || parentPhone.trim()) {
-        const creds = await linkParentToStudent({
-          studentId: studentToAssign.id,
-          fullName: parentFullName.trim() || 'Parent Guardian',
-          email: parentEmail.trim().toLowerCase(),
-          phone: parentPhone.trim() || undefined,
-          relationship: parentRelationship,
-          tempPassword: parentTempPassword.trim() || undefined,
-        })
-
-        if (creds?.temp_password) {
-          setParentCredentials({
-            fullName: creds.full_name,
-            email: creds.email,
-            password: creds.temp_password,
-            studentName: studentToAssign.fullName,
-          })
-        }
-      }
-
-      setToastMessage(`Updated assignment for ${studentToAssign.fullName}!`)
-      setStudentToAssign(null)
-      setTimeout(() => setToastMessage(null), 5000)
+      await assignStudentStop({
+        studentId: studentToAssign.id,
+        stopId: assignStopId,
+      })
+      setStopSuccess('✓ Bus stop updated successfully!')
+      setToastMessage(`Updated bus stop for ${studentToAssign.fullName}!`)
+      setStudentToAssign((prev) => prev ? { ...prev, hasStop: true, stopId: assignStopId } : null)
+      setTimeout(() => setStopSuccess(''), 5000)
     } catch (err) {
-      console.error('Failed to assign student / link parent:', err)
-      setAssignError(err.message || 'Failed to update student assignment.')
+      console.error('Failed to assign stop:', err)
+      setStopError(err.message || 'Failed to assign stop.')
     } finally {
-      setAssigning(false)
+      setSavingStop(false)
+    }
+  }
+
+  async function handleSaveParent(e) {
+    if (e) e.preventDefault()
+    if (!studentToAssign) return
+    if (!parentEmail.trim() && !parentPhone.trim()) {
+      setParentError('Please enter a parent email or contact phone number.')
+      return
+    }
+    setSavingParent(true)
+    setParentError('')
+    setParentSuccess('')
+    try {
+      const creds = await linkParentToStudent({
+        studentId: studentToAssign.id,
+        fullName: parentFullName.trim() || 'Parent Guardian',
+        email: parentEmail.trim().toLowerCase() || undefined,
+        phone: parentPhone.trim() || undefined,
+        relationship: parentRelationship,
+        tempPassword: parentTempPassword.trim() || undefined,
+      })
+
+      if (creds?.temp_password) {
+        setParentCredentials({
+          fullName: creds.full_name,
+          email: creds.email,
+          password: creds.temp_password,
+          studentName: studentToAssign.fullName,
+        })
+      }
+      setParentSuccess('✓ Parent account linked successfully!')
+      setToastMessage(`Linked parent to ${studentToAssign.fullName}!`)
+      setStudentToAssign((prev) => prev ? {
+        ...prev,
+        parentName: parentFullName.trim() || 'Parent Guardian',
+        parentPhone: parentPhone.trim() || prev.parentPhone,
+        guardianId: prev.guardianId || 'linked',
+      } : null)
+      setTimeout(() => setParentSuccess(''), 5000)
+    } catch (err) {
+      console.error('Failed to link parent:', err)
+      setParentError(err.message || 'Failed to link parent.')
+    } finally {
+      setSavingParent(false)
     }
   }
 
@@ -572,13 +606,13 @@ export default function Students() {
               </div>
             )}
 
-            <form onSubmit={handleAssignSubmit} className="mt-5 flex flex-col gap-5">
+            <div className="mt-5 flex flex-col gap-5">
               {/* Section 1: Route & Bus Stop Assignment */}
               <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
                     <span>🚌</span>
-                    <span>Bus Route &amp; Stop Assignment</span>
+                    <span>1. Bus Route &amp; Stop</span>
                   </span>
                   <span className="text-[11px] font-semibold text-muted">
                     {studentToAssign.hasStop ? '✓ Currently Assigned' : '⚠️ Needs Stop'}
@@ -600,54 +634,86 @@ export default function Students() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="text-xs font-semibold text-ink">Select Bus Route</label>
-                      <select
-                        value={assignRouteId}
-                        onChange={(e) => {
-                          setAssignRouteId(e.target.value)
-                          setAssignStopId('')
-                        }}
-                        className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
-                      >
-                        <option value="">Choose a route…</option>
-                        {routes.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name} ({r.code || 'Route'})
-                          </option>
-                        ))}
-                      </select>
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-semibold text-ink">Select Bus Route</label>
+                        <select
+                          value={assignRouteId}
+                          onChange={(e) => {
+                            setAssignRouteId(e.target.value)
+                            setAssignStopId('')
+                          }}
+                          className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
+                        >
+                          <option value="">Choose a route…</option>
+                          {routes.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.name} ({r.code || 'Route'})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-semibold text-ink">Assigned Bus Stop</label>
+                        <select
+                          value={assignStopId}
+                          onChange={(e) => setAssignStopId(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
+                        >
+                          <option value="">Choose pickup/drop-off stop…</option>
+                          {(routes.find((r) => r.id === assignRouteId)?.stops || []).map((st) => (
+                            <option key={st.id} value={st.id}>
+                              {st.name} {st.is_school ? '(School)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-[10px] text-muted">
+                          Used for both morning pickup &amp; afternoon drop-off.
+                        </p>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-ink">Assigned Bus Stop</label>
-                      <select
-                        value={assignStopId}
-                        onChange={(e) => setAssignStopId(e.target.value)}
-                        className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
+                    {stopError && (
+                      <div className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+                        ✕ {stopError}
+                      </div>
+                    )}
+
+                    {stopSuccess && (
+                      <div className="rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
+                        {stopSuccess}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        disabled={savingStop || !assignStopId}
+                        onClick={handleSaveStop}
+                        className="rounded-lg bg-ink px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50"
                       >
-                        <option value="">Choose pickup/drop-off stop…</option>
-                        {(routes.find((r) => r.id === assignRouteId)?.stops || []).map((st) => (
-                          <option key={st.id} value={st.id}>
-                            {st.name} {st.is_school ? '(School)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-1 text-[10px] text-muted">
-                        Assigned as both morning pickup &amp; afternoon drop-off stop.
-                      </p>
+                        {savingStop ? 'Saving Stop…' : 'Save Stop Assignment'}
+                      </button>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
 
               {/* Section 2: Parent / Guardian Account */}
               <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 flex flex-col gap-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
-                  <span>👨‍👩‍👧</span>
-                  <span>Parent / Guardian Account</span>
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
+                    <span>👨‍👩‍👧</span>
+                    <span>2. Parent / Guardian Account</span>
+                  </span>
+                  {studentToAssign.guardianId && (
+                    <span className="text-[11px] font-semibold text-emerald-700">
+                      ✓ Parent linked
+                    </span>
+                  )}
+                </div>
 
                 {studentToAssign.guardianId && (
                   <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-900 font-medium">
@@ -722,26 +788,45 @@ export default function Students() {
                     className="mt-1 w-full rounded-lg border border-field p-2 text-xs font-mono text-ink"
                   />
                 </div>
+
+                {parentError && (
+                  <div className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+                    ✕ {parentError}
+                  </div>
+                )}
+
+                {parentSuccess && (
+                  <div className="rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
+                    {parentSuccess}
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    disabled={savingParent || (!parentEmail.trim() && !parentPhone.trim())}
+                    onClick={handleSaveParent}
+                    className="rounded-lg bg-amber px-4 py-2 text-xs font-bold text-ink shadow-xs hover:opacity-95 disabled:opacity-50"
+                  >
+                    {savingParent ? 'Saving Parent…' : 'Save & Link Parent'}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+              {/* Modal footer with Done button */}
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <span className="text-[11px] text-muted">
+                  Each section saves independently.
+                </span>
                 <button
                   type="button"
-                  onClick={() => { setStudentToAssign(null); setAssignError('') }}
-                  disabled={assigning}
-                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50"
+                  onClick={() => { setStudentToAssign(null); setAssignError(''); setStopError(''); setParentError(''); }}
+                  className="min-h-10 rounded-xl bg-gray-100 px-5 py-2 text-xs font-bold text-ink hover:bg-gray-200"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={assigning}
-                  className="rounded-xl bg-amber px-5 py-2.5 text-xs font-bold text-ink hover:opacity-95 disabled:opacity-50 shadow-xs"
-                >
-                  {assigning ? 'Saving Assignment…' : 'Save Assignment & Link'}
+                  Done / Close
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
