@@ -281,7 +281,7 @@ export default function Students() {
       )}
 
       {/* Filters Bar */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
           value={query}
@@ -313,6 +313,19 @@ export default function Students() {
           <option value="ok">Has stop assigned</option>
           <option value="nostop">Needs a stop</option>
         </select>
+        {(query || routeId !== 'all' || status !== 'all') && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('')
+              setRouteId('all')
+              setStatus('all')
+            }}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-muted hover:bg-gray-50 hover:text-ink transition-colors"
+          >
+            ✕ Reset
+          </button>
+        )}
       </div>
 
       {/* Students Table */}
@@ -395,7 +408,18 @@ export default function Students() {
         </table>
 
         {shown.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted">No students match your filter.</p>
+          <div className="py-8 text-center flex flex-col items-center gap-2">
+            <p className="text-sm font-semibold text-ink">No students match your filter.</p>
+            {(query || routeId !== 'all' || status !== 'all') && (
+              <button
+                type="button"
+                onClick={() => { setQuery(''); setRouteId('all'); setStatus('all') }}
+                className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-1.5 text-xs font-bold text-ink hover:bg-gray-100"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
         )}
 
         <div className="border-t border-gray-100 pt-3 text-xs text-muted">

@@ -531,8 +531,106 @@ export default function OwnerDashboard() {
               No schools registered yet. Click &quot;Add New School&quot; to provision the first school.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <>
+              {/* Mobile Card View (< lg screens) */}
+              <div className="flex flex-col divide-y divide-gray-100 lg:hidden">
+                {schools.map((school) => {
+                  const m = metrics.find((item) => item.school_id === school.id)
+                  const mgr = managers.find((item) => item.school_id === school.id)
+                  return (
+                    <div key={school.id} className="p-4 flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="font-bold text-ink text-base">{school.name}</h4>
+                          <span className="mt-0.5 inline-block rounded-md bg-gray-100 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">
+                            {school.code}
+                          </span>
+                        </div>
+                        <div className="text-right text-xs text-muted">
+                          <div>{school.timezone}</div>
+                          {school.contact_phone && <div>📞 {school.contact_phone}</div>}
+                        </div>
+                      </div>
+
+                      {/* Fleet & Student Stats */}
+                      <div className="flex items-center gap-4 text-xs font-semibold text-slate-700 bg-gray-50 rounded-xl p-2.5">
+                        <span>🚌 {m?.total_buses ?? 0} Buses</span>
+                        <span>👥 {m?.total_students ?? 0} Students</span>
+                      </div>
+
+                      {/* Manager Section */}
+                      <div className="flex items-center justify-between border-t border-gray-100 pt-2">
+                        {mgr ? (
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 text-xs font-bold text-purple-900 shrink-0">
+                              👤
+                            </span>
+                            <div>
+                              <div className="font-semibold text-ink text-xs">{mgr.full_name}</div>
+                              <div className="text-[11px] text-muted font-mono">{mgr.phone || 'Manager Assigned'}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProvisionSchool(school)
+                              setManagerFullName('')
+                              setManagerEmail('')
+                              setManagerPhone(school.contact_phone || '')
+                              setManagerPassword('')
+                              setProvisionError('')
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-900 hover:bg-amber-100 shadow-2xs"
+                          >
+                            <span>+ Add Manager</span>
+                          </button>
+                        )}
+
+                        {mgr && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResetSchoolTarget({ school, mgr })
+                              setNewManagerPassInput('')
+                              setResetPassError('')
+                            }}
+                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 hover:bg-indigo-100 shadow-2xs"
+                          >
+                            🔑 Reset Pass
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Admin Actions */}
+                      <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => { setPurgeSchool(school); setPurgeError('') }}
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                        >
+                          🧹 Purge
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteSchoolTarget(school)
+                            setDeleteError('')
+                            setConfirmCode('')
+                          }}
+                          className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100 shadow-xs"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Desktop Table View (>= lg screens) */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-xs font-semibold text-muted uppercase tracking-wider">
                   <tr>
                     <th className="px-6 py-3.5">School Name</th>
@@ -650,6 +748,7 @@ export default function OwnerDashboard() {
                 </tbody>
               </table>
             </div>
+          </>
           )}
         </div>
       </main>

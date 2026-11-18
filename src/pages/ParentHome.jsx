@@ -128,7 +128,6 @@ export default function ParentHome() {
     busDistanceM,
     busStatus,
     absences,
-    alerts,
     loading,
     error,
     reportAbsence,
@@ -301,9 +300,102 @@ export default function ParentHome() {
           activeTrip={activeTrip}
         />
 
+        {/* Quick Actions Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          {selectedChild?.schoolPhone ? (
+            <a
+              href={`tel:${selectedChild.schoolPhone}`}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white p-3 text-center text-xs sm:text-sm font-bold text-ink shadow-xs hover:bg-gray-50 active:scale-98 transition-all"
+            >
+              <span className="text-base">📞</span>
+              <span>{t('home.call')}</span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white/70 p-3 text-center text-xs sm:text-sm font-semibold text-muted opacity-60"
+            >
+              <span className="text-base">📞</span>
+              <span>{t('home.call')}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowAbsenceModal(true)}
+            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-amber/30 bg-amber/15 p-3 text-center text-xs sm:text-sm font-bold text-ink shadow-xs hover:bg-amber/25 active:scale-98 transition-all"
+          >
+            <span className="text-base">📝</span>
+            <span>{t('home.absence.title')}</span>
+          </button>
+        </div>
+
+        {absenceMsg && (
+          <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs font-semibold text-emerald-800">
+            ✓ {absenceMsg}
+          </div>
+        )}
+
+        {absenceError && (
+          <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs font-semibold text-red-700">
+            ✕ {absenceError}
+          </div>
+        )}
+
+        {/* Active Reported Absences (only shown if absences exist) */}
+        {absences.length > 0 && (
+          <section className="flex flex-col gap-2 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                <span>⚠️</span>
+                <span>Reported Absences</span>
+              </span>
+              <span className="text-[11px] text-muted">
+                {absences.length} {absences.length === 1 ? 'record' : 'records'}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {absences.map((abs) => (
+                <div
+                  key={abs.id}
+                  className="flex items-center justify-between rounded-xl border border-amber-200 bg-white p-3 text-xs"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-ink">
+                      {abs.trip_date} · {t(`home.absence.direction.${abs.direction}`) || abs.direction}
+                    </span>
+                    {abs.reason && (
+                      <span className="text-muted italic">&ldquo;{abs.reason}&rdquo;</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={cancellingAbsenceId === abs.id}
+                    onClick={() => handleCancelAbsence(abs.id)}
+                    className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    {cancellingAbsenceId === abs.id ? t('home.absence.cancelling') : t('home.absence.cancel')}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted mt-0.5">{t('home.absence.driverNotice')}</p>
+          </section>
+        )}
+
         {/* Near-Stop Alert Preference (200m / 500m / 1000m) */}
-        <section className="flex flex-col gap-2.5 rounded-2xl bg-white p-4 shadow-xs">
-          <h2 className="text-[15px] font-bold text-ink">{t('home.alert.title')}</h2>
+        <section className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
+              <span>🔔</span>
+              <span>{t('home.alert.title')}</span>
+            </h2>
+            <span className="text-[11px] text-muted font-medium">
+              Alerts when bus is nearby
+            </span>
+          </div>
           <div className="flex gap-2">
             {ALERT_PRESETS.map((preset) => {
               const selected = preset.meters === alertMeters
@@ -314,8 +406,10 @@ export default function ParentHome() {
                   aria-pressed={selected}
                   onClick={() => updateAlertRadius(preset.meters)}
                   className={
-                    'min-h-12 flex-1 rounded-[10px] text-[15px] transition-colors ' +
-                    (selected ? 'bg-ink font-bold text-white shadow-xs' : 'border border-field bg-white text-ink hover:bg-gray-50')
+                    'min-h-10 flex-1 rounded-xl text-xs font-semibold transition-all ' +
+                    (selected
+                      ? 'bg-ink font-bold text-white shadow-xs'
+                      : 'border border-gray-200 bg-white text-ink hover:bg-gray-50')
                   }
                 >
                   {formatRadius(preset.meters, t)}
@@ -323,110 +417,8 @@ export default function ParentHome() {
               )
             })}
           </div>
-          <p className="text-[13px] text-muted">{t('home.alert.note')}</p>
+          <p className="text-[11px] text-muted">{t('home.alert.note')}</p>
         </section>
-
-        {/* Absence Reporting Section */}
-        <section className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-[15px] font-bold text-ink">{t('home.absence.title')}</h2>
-              <p className="text-xs text-muted">{t('home.absence.subtitle')}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAbsenceModal(true)}
-              className="rounded-xl bg-amber px-3.5 py-2 text-xs font-bold text-ink hover:opacity-95"
-            >
-              + {t('home.absence.title')}
-            </button>
-          </div>
-
-          {absenceMsg && (
-            <div className="rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
-              {absenceMsg}
-            </div>
-          )}
-
-          {absenceError && (
-            <div className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
-              {absenceError}
-            </div>
-          )}
-
-          {/* Active reported absences list */}
-          <div className="mt-1 flex flex-col gap-2">
-            {absences.length === 0 ? (
-              <p className="py-2 text-xs text-muted">{t('home.absence.none')}</p>
-            ) : (
-              absences.map((abs) => (
-                <div
-                  key={abs.id}
-                  className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 p-3 text-xs"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-bold text-ink">
-                      {abs.trip_date} · {abs.direction.toUpperCase()}
-                    </span>
-                    {abs.reason && (
-                      <span className="text-muted italic">&ldquo;{abs.reason}&rdquo;</span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={cancellingAbsenceId === abs.id}
-                    onClick={() => handleCancelAbsence(abs.id)}
-                    className="rounded-lg border border-red-200 px-2.5 py-1 font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    {cancellingAbsenceId === abs.id ? t('home.absence.cancelling') : t('home.absence.cancel')}
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-          <p className="text-[11px] text-muted">{t('home.absence.driverNotice')}</p>
-        </section>
-
-        {/* Today's Events Preview */}
-        <section className="flex flex-col gap-2.5 rounded-2xl bg-white p-4 shadow-xs">
-          <h2 className="text-[15px] font-bold text-ink">{t('home.today')}</h2>
-          {alerts.length > 0 ? (
-            alerts.slice(0, 3).map((item) => (
-              <div key={item.id} className="flex justify-between gap-3 text-sm">
-                <span className="text-ink">
-                  {item.event_type === 'nearStop'
-                    ? `Bus about ${item.radius_meters || 500}m from your stop`
-                    : item.event_type === 'tripStarted'
-                    ? 'Trip started'
-                    : item.event_type}
-                </span>
-                <span className="shrink-0 text-muted">
-                  {item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                </span>
-              </div>
-            ))
-          ) : (
-            <p className="text-xs text-muted">No trip events recorded yet today.</p>
-          )}
-        </section>
-
-        {/* Call School Office Button */}
-        {selectedChild?.schoolPhone ? (
-          <a
-            href={`tel:${selectedChild.schoolPhone}`}
-            className="flex min-h-12 items-center justify-center rounded-xl border border-field bg-white px-3 text-[15px] font-bold text-ink shadow-xs hover:bg-gray-50"
-          >
-            📞 {t('home.call')} ({selectedChild.schoolPhone})
-          </a>
-        ) : (
-          <button
-            type="button"
-            disabled
-            className="min-h-12 rounded-xl border border-field bg-white px-3 text-[15px] font-semibold text-muted opacity-60"
-          >
-            {t('home.call')}
-          </button>
-        )}
       </main>
 
       {/* Report Absence Modal */}
