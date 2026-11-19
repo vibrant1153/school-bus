@@ -6,10 +6,8 @@ import { useI18n } from '../i18n/useI18n.js'
 import { useAuth } from '../lib/useAuth.js'
 import { useParentData } from '../lib/useParentData.js'
 import {
-  ALERT_PRESETS,
   describeAge,
   formatDistance,
-  formatRadius,
 } from '../prototype.js'
 
 function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
@@ -132,7 +130,6 @@ export default function ParentHome() {
     error,
     reportAbsence,
     cancelAbsence,
-    updateAlertRadius,
   } = useParentData()
 
   // Absence modal and submission state
@@ -147,7 +144,6 @@ export default function ParentHome() {
   const [absenceError, setAbsenceError] = useState(null)
 
   const parentName = profile?.full_name || 'Guardian'
-  const alertMeters = selectedChild?.alertRadiusM || 500
 
   async function handleReportAbsence(e) {
     e.preventDefault()
@@ -207,15 +203,6 @@ export default function ParentHome() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitch />
-            <button
-              type="button"
-              onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
-              aria-label="Change Password"
-              title="Change Password"
-              className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs hover:bg-gray-100 active:scale-95 transition-all"
-            >
-              <span>🔑</span>
-            </button>
             <button
               type="button"
               onClick={signOut}
@@ -385,40 +372,6 @@ export default function ParentHome() {
           </section>
         )}
 
-        {/* Near-Stop Alert Preference (200m / 500m / 1000m) */}
-        <section className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
-              <span>🔔</span>
-              <span>{t('home.alert.title')}</span>
-            </h2>
-            <span className="text-[11px] text-muted font-medium">
-              Alerts when bus is nearby
-            </span>
-          </div>
-          <div className="flex gap-2">
-            {ALERT_PRESETS.map((preset) => {
-              const selected = preset.meters === alertMeters
-              return (
-                <button
-                  key={preset.meters}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => updateAlertRadius(preset.meters)}
-                  className={
-                    'min-h-10 flex-1 rounded-xl text-xs font-semibold transition-all ' +
-                    (selected
-                      ? 'bg-ink font-bold text-white shadow-xs'
-                      : 'border border-gray-200 bg-white text-ink hover:bg-gray-50')
-                  }
-                >
-                  {formatRadius(preset.meters, t)}
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-[11px] text-muted">{t('home.alert.note')}</p>
-        </section>
       </main>
 
       {/* Report Absence Modal */}

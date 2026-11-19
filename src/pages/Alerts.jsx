@@ -3,7 +3,7 @@ import ParentNav from '../components/ParentNav.jsx'
 import { useI18n } from '../i18n/useI18n.js'
 import { useParentData } from '../lib/useParentData.js'
 import { useAuth } from '../lib/useAuth.js'
-import { formatRadius } from '../prototype.js'
+import { formatRadius, ALERT_PRESETS } from '../prototype.js'
 
 function formatAlertText(alert, t) {
   const type = alert.event_type || alert.type
@@ -58,7 +58,8 @@ const DOT = {
 export default function Alerts() {
   const { t } = useI18n()
   const { signOut } = useAuth()
-  const { alerts, loading } = useParentData()
+  const { alerts, loading, selectedChild, updateAlertRadius } = useParentData()
+  const alertMeters = selectedChild?.alertRadiusM || 500
 
   const groups = [
     { day: 'today', title: t('home.today') },
@@ -127,6 +128,35 @@ export default function Alerts() {
             )
           })
         )}
+
+        <section className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-xs">
+          <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
+            <span>🔔</span>
+            <span>Alert me when bus is within</span>
+          </h2>
+          <div className="flex gap-2">
+            {ALERT_PRESETS.map((preset) => {
+              const selected = preset.meters === alertMeters
+              return (
+                <button
+                  key={preset.meters}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => updateAlertRadius(preset.meters)}
+                  className={
+                    'min-h-10 flex-1 rounded-xl text-xs font-semibold transition-all ' +
+                    (selected
+                      ? 'bg-ink font-bold text-white shadow-xs'
+                      : 'border border-gray-200 bg-white text-ink hover:bg-gray-50')
+                  }
+                >
+                  {formatRadius(preset.meters, t)}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-muted">{t('home.alert.note')}</p>
+        </section>
 
         <p className="rounded-xl bg-[#FFF6E0] p-3 text-sm leading-relaxed text-amber-900">
           {t('alerts.disclaimer')}

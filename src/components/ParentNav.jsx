@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n/useI18n.js'
-import { useAuth } from '../lib/useAuth.js'
 
 const TABS = [
   { id: 'home', to: '/home', key: 'nav.home', icon: '🏠' },
@@ -10,7 +9,6 @@ const TABS = [
 
 export default function ParentNav({ active }) {
   const { t } = useI18n()
-  const { signOut } = useAuth()
 
   return (
     <nav
@@ -41,20 +39,6 @@ export default function ParentNav({ active }) {
             </Link>
           )
         })}
-
-        <button
-          type="button"
-          onClick={signOut}
-          aria-label="Sign out"
-          className="flex flex-1 flex-col items-center justify-center rounded-xl py-1 text-center text-red-600 hover:bg-red-50 hover:text-red-700 active:bg-red-100 transition-all font-semibold"
-        >
-          <span className="text-lg leading-none" aria-hidden="true">
-            🚪
-          </span>
-          <span className="mt-1 text-[11px] sm:text-xs font-bold text-red-600">
-            Log Out
-          </span>
-        </button>
       </div>
     </nav>
   )
