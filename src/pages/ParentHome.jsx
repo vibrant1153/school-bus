@@ -20,18 +20,51 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
   if (busStatus.mode === 'none') {
     const plannedTime = selectedChild?.morningStop?.time || '07:00 AM'
     return (
-      <section className="flex flex-col gap-2.5 rounded-2xl bg-white p-5 shadow-xs" aria-live="polite">
-        <p className="flex items-center gap-2 text-[13px] font-bold text-muted">
-          <span className="h-2.5 w-2.5 rounded-full bg-field" aria-hidden="true" />
-          {t('home.none.badge')}
-        </p>
-        <p className="text-[26px] leading-tight font-extrabold text-ink">{t('home.none.title')}</p>
-        <p className="text-[15px] text-muted">{t('home.none.body', { time: plannedTime })}</p>
+      <section className="card-3d relative overflow-hidden flex flex-col gap-3 rounded-3xl p-6" aria-live="polite">
+        <div className="flex items-center justify-between">
+          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600 border border-slate-200/60 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden="true" />
+            {t('home.none.badge')}
+          </span>
+          <span className="text-xs font-semibold text-slate-500">
+            Next: {plannedTime}
+          </span>
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{t('home.none.title')}</h2>
+          <p className="mt-1 text-sm text-slate-600 leading-relaxed">{t('home.none.body', { time: plannedTime })}</p>
+        </div>
+
+        {/* Visual Route Overview for Beginners/Elders */}
+        <div className="my-1 rounded-2xl bg-slate-50/80 border border-slate-200/60 p-3.5">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+            <span>Route</span>
+            <span>Your Stop</span>
+            <span>School</span>
+          </div>
+          <div className="relative mt-2 flex items-center justify-between">
+            <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-1 bg-slate-200 rounded-full" />
+            <div className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-slate-300 text-[10px] font-bold text-slate-700 shadow-xs">
+              1
+            </div>
+            <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-xs font-extrabold text-slate-900 shadow-xs border-2 border-white ring-2 ring-amber-300/40">
+              📍
+            </div>
+            <div className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs">
+              🏫
+            </div>
+          </div>
+          <p className="mt-2 text-center text-xs font-bold text-slate-700 truncate">
+            {stopLabel}
+          </p>
+        </div>
+
         <Link
           to="/map"
-          className="mt-1.5 flex min-h-13 items-center justify-center rounded-xl border border-field px-3 text-center text-base font-bold text-ink hover:bg-gray-50"
+          className="btn-3d-subtle mt-1 flex min-h-12 items-center justify-center rounded-2xl text-center text-sm font-bold text-slate-800"
         >
-          {t('home.viewRoute')}
+          {t('home.viewRoute')} →
         </Link>
       </section>
     )
@@ -42,34 +75,81 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
   const distance = formatDistance(busDistanceM, t)
 
   return (
-    <section className="flex flex-col gap-2.5 rounded-2xl bg-white p-5 shadow-xs" aria-live="polite">
-      <p className={'flex items-center gap-2 text-[13px] font-bold ' + (stale ? 'text-muted' : 'text-live')}>
-        <span className={'h-2.5 w-2.5 rounded-full ' + (stale ? 'bg-field' : 'bg-live animate-pulse')} aria-hidden="true" />
-        {stale ? t('home.lastSeen', { age }).toUpperCase() : t('home.live')}
-      </p>
-      <p className={'leading-tight font-extrabold ' + (stale ? 'text-[26px] text-muted' : 'text-3xl text-ink')}>
-        {stale ? t('home.lastKnown', { distance }) : t('home.about', { distance })}
-      </p>
-      <p className="text-[15px] text-ink">{t('home.heading', { bus: busLabel, stop: stopLabel })}</p>
+    <section className="card-3d relative overflow-hidden flex flex-col gap-3 rounded-3xl p-6" aria-live="polite">
+      {/* Top Status Pill */}
+      <div className="flex items-center justify-between">
+        <span
+          className={
+            'inline-flex items-center gap-2 rounded-full px-3.5 py-1 text-xs font-extrabold shadow-2xs ' +
+            (stale
+              ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
+              : 'bg-emerald-100 text-emerald-950 border border-emerald-300/80 radar-live')
+          }
+        >
+          <span
+            className={
+              'h-2.5 w-2.5 rounded-full ' +
+              (stale ? 'bg-amber-500' : 'bg-emerald-600')
+            }
+            aria-hidden="true"
+          />
+          {stale ? t('home.lastSeen', { age }).toUpperCase() : t('home.live')}
+        </span>
+        <span className="text-xs font-bold text-slate-500">
+          {stale ? t('home.updatedLast', { age }) : t('home.updatedApprox', { age })}
+        </span>
+      </div>
+
+      {/* Main Distance / Status Heading */}
+      <div>
+        <p className={'font-black tracking-tight leading-none ' + (stale ? 'text-2xl text-slate-700' : 'text-3xl sm:text-4xl text-slate-950')}>
+          {stale ? t('home.lastKnown', { distance }) : t('home.about', { distance })}
+        </p>
+        <p className="mt-1.5 text-sm font-semibold text-slate-700">
+          {t('home.heading', { bus: busLabel, stop: stopLabel })}
+        </p>
+      </div>
 
       {stale && (
-        <p className="rounded-xl bg-[#FFF6E0] p-3 text-sm leading-relaxed text-amber-900" role="alert">
+        <div className="rounded-2xl border border-amber-300 bg-amber-50/90 p-3 text-xs leading-relaxed font-medium text-amber-950" role="alert">
           {t('home.staleWarning')}
-        </p>
+        </div>
       )}
 
-      <p className="text-[13px] text-muted">
-        {stale ? t('home.updatedLast', { age }) : t('home.updatedApprox', { age })}
-      </p>
+      {/* Live Route Tracker Bar for Non-Tech/Elderly Parents */}
+      <div className="rounded-2xl bg-slate-50/90 border border-slate-200/80 p-3.5 shadow-inner">
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+          <span>Depot</span>
+          <span className="text-amber-900 font-extrabold">Your Stop</span>
+          <span>School</span>
+        </div>
+        <div className="relative mt-2.5 mb-1 flex items-center justify-between px-1">
+          <div className="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-emerald-500 to-amber-500 rounded-full w-2/3 animate-pulse" />
+          </div>
+          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white shadow-xs font-bold">
+            ✓
+          </div>
+          <div className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-base shadow-md border-2 border-white ring-2 ring-amber-400/50 scale-110">
+            🚌
+          </div>
+          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-slate-300 text-xs text-slate-700 shadow-xs font-bold">
+            🏫
+          </div>
+        </div>
+        <p className="mt-2 text-center text-xs font-extrabold text-slate-800">
+          Next Stop: <span className="text-amber-700">{stopLabel}</span>
+        </p>
+      </div>
 
       <Link
         to="/map"
         className={
-          'mt-1.5 flex min-h-13 items-center justify-center rounded-xl px-3 text-center text-base font-bold ' +
-          (stale ? 'border border-field text-ink hover:bg-gray-50' : 'bg-amber text-ink hover:opacity-95')
+          'mt-1 flex min-h-13 items-center justify-center rounded-2xl text-center text-sm font-extrabold transition-all ' +
+          (stale ? 'btn-3d-subtle text-slate-800' : 'btn-3d-amber text-slate-950')
         }
       >
-        {stale ? t('home.viewLast') : t('home.viewBus')}
+        {stale ? t('home.viewLast') : t('home.viewBus')} 🗺️
       </Link>
     </section>
   )
@@ -194,12 +274,13 @@ export default function ParentHome() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-gray-50">
-      <main className="flex flex-1 flex-col gap-4 p-5 pb-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col">
+      <main className="flex flex-1 flex-col gap-4 p-4 sm:p-5 pb-8">
+        {/* Header */}
+        <header className="card-3d flex items-center justify-between gap-3 rounded-2xl px-4 py-3">
           <div className="min-w-0 flex-1">
-            <p className="text-xs sm:text-sm text-muted font-medium">{t('home.greeting')}</p>
-            <h1 className="text-xl sm:text-[22px] font-extrabold text-ink truncate">{parentName}</h1>
+            <p className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase tracking-wider">{t('home.greeting')}</p>
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 truncate tracking-tight">{parentName}</h1>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitch />
@@ -207,7 +288,7 @@ export default function ParentHome() {
               type="button"
               onClick={signOut}
               aria-label="Sign out"
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-600 shadow-xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
+              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/80 px-3 py-1.5 text-xs font-black text-red-600 shadow-2xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
             >
               <span aria-hidden="true">🚪</span>
               <span>Log Out</span>
@@ -217,28 +298,28 @@ export default function ParentHome() {
 
         {/* Temporary Password Warning Banner */}
         {mustChangePassword && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900 flex items-center justify-between gap-2 shadow-xs">
-            <span>⚠️ You are signed in with a temporary password.</span>
+          <div className="card-3d rounded-2xl border-amber-300 bg-amber-50/90 p-3.5 text-xs font-bold text-amber-950 flex items-center justify-between gap-2 shadow-xs">
+            <span>⚠️ Signed in with a temporary password</span>
             <button
               type="button"
               onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
-              className="rounded-lg bg-amber px-2.5 py-1 text-xs font-bold text-ink hover:opacity-90 transition-opacity"
+              className="btn-3d-amber rounded-xl px-3 py-1.5 text-xs font-black text-slate-950 whitespace-nowrap"
             >
-              Set Permanent Password →
+              Set Password →
             </button>
           </div>
         )}
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700">
+          <div className="card-3d rounded-2xl border-red-200 bg-red-50/90 p-4 text-xs font-bold text-red-700">
             {error}
           </div>
         )}
 
         {/* Multi-child selector */}
         {children.length > 1 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            <span className="text-xs font-semibold text-muted whitespace-nowrap">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 px-0.5">
+            <span className="text-xs font-extrabold text-slate-500 whitespace-nowrap">
               {t('home.childSelector')}:
             </span>
             {children.map((child) => (
@@ -247,10 +328,10 @@ export default function ParentHome() {
                 type="button"
                 onClick={() => setSelectedChildId(child.id)}
                 className={
-                  'rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap ' +
+                  'rounded-xl px-3.5 py-1.5 text-xs font-black transition-all whitespace-nowrap ' +
                   (selectedChildId === child.id
-                    ? 'bg-amber text-ink shadow-xs'
-                    : 'border border-field bg-white text-muted hover:border-gray-400')
+                    ? 'btn-3d-amber text-slate-950'
+                    : 'btn-3d-subtle text-slate-600')
                 }
               >
                 {child.fullName}
@@ -259,22 +340,31 @@ export default function ParentHome() {
           </div>
         )}
 
-        {/* Selected Child Summary Card */}
+        {/* Selected Child Summary Card with 3D depth */}
         {selectedChild ? (
-          <section className="flex items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-xs">
-            <div>
-              <p className="text-[17px] font-bold text-ink">{selectedChild.fullName}</p>
-              <p className="text-sm text-muted">
-                {t('home.grade', { n: selectedChild.grade ?? '—' })} · {t('home.bus', { n: selectedChild.busNumber })} · {t('home.trip.morning')}
+          <section className="card-3d card-3d-interactive flex items-center justify-between gap-3.5 rounded-3xl p-4.5">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-amber-200 text-lg font-black text-slate-900 shadow-sm border border-amber-300/60">
+                {selectedChild.fullName?.charAt(0) || '🎓'}
+              </div>
+              <div className="min-w-0">
+                <p className="text-base font-black text-slate-900 truncate">{selectedChild.fullName}</p>
+                <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                  {t('home.grade', { n: selectedChild.grade ?? '—' })} · Bus #{selectedChild.busNumber || 1}
+                </p>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+                {t('home.yourStop')}
+              </span>
+              <p className="text-xs font-black text-slate-800 max-w-[130px] truncate">
+                📍 {selectedChild.morningStop?.name || t('home.stop', { n: 1 })}
               </p>
             </div>
-            <p className="text-right text-[13px] text-muted">
-              {t('home.yourStop')}<br />
-              <b className="text-ink">{selectedChild.morningStop?.name || t('home.stop', { n: 1 })}</b>
-            </p>
           </section>
         ) : (
-          <section className="rounded-2xl bg-white p-5 text-center text-sm text-muted shadow-xs">
+          <section className="card-3d rounded-3xl p-6 text-center text-sm font-semibold text-slate-500">
             No children registered to this account. Contact your school administrator to link your child.
           </section>
         )}
@@ -287,21 +377,21 @@ export default function ParentHome() {
           activeTrip={activeTrip}
         />
 
-        {/* Quick Actions Grid */}
+        {/* Quick Actions Grid - Tactile 3D Buttons */}
         <div className="grid grid-cols-2 gap-3">
           {selectedChild?.schoolPhone ? (
             <a
               href={`tel:${selectedChild.schoolPhone}`}
-              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white p-3 text-center text-xs sm:text-sm font-bold text-ink shadow-xs hover:bg-gray-50 active:scale-98 transition-all"
+              className="btn-3d-subtle flex min-h-13 items-center justify-center gap-2.5 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-slate-900"
             >
-              <span className="text-base">📞</span>
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 text-sm shadow-2xs">📞</span>
               <span>{t('home.call')}</span>
             </a>
           ) : (
             <button
               type="button"
               disabled
-              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white/70 p-3 text-center text-xs sm:text-sm font-semibold text-muted opacity-60"
+              className="flex min-h-13 items-center justify-center gap-2 rounded-2xl border border-slate-200/50 bg-white/40 p-3 text-center text-xs sm:text-sm font-bold text-slate-400 opacity-60"
             >
               <span className="text-base">📞</span>
               <span>{t('home.call')}</span>
@@ -311,34 +401,34 @@ export default function ParentHome() {
           <button
             type="button"
             onClick={() => setShowAbsenceModal(true)}
-            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-amber/30 bg-amber/15 p-3 text-center text-xs sm:text-sm font-bold text-ink shadow-xs hover:bg-amber/25 active:scale-98 transition-all"
+            className="btn-3d-subtle flex min-h-13 items-center justify-center gap-2.5 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-slate-900"
           >
-            <span className="text-base">📝</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100 text-amber-900 text-sm shadow-2xs">📝</span>
             <span>{t('home.absence.title')}</span>
           </button>
         </div>
 
         {absenceMsg && (
-          <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs font-semibold text-emerald-800">
+          <div className="card-3d rounded-2xl border-emerald-300 bg-emerald-50/90 p-3.5 text-xs font-bold text-emerald-900">
             ✓ {absenceMsg}
           </div>
         )}
 
         {absenceError && (
-          <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs font-semibold text-red-700">
+          <div className="card-3d rounded-2xl border-red-300 bg-red-50/90 p-3.5 text-xs font-bold text-red-700">
             ✕ {absenceError}
           </div>
         )}
 
         {/* Active Reported Absences (only shown if absences exist) */}
         {absences.length > 0 && (
-          <section className="flex flex-col gap-2 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-xs">
+          <section className="card-3d flex flex-col gap-2.5 rounded-3xl p-4.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+              <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
                 <span>⚠️</span>
                 <span>Reported Absences</span>
               </span>
-              <span className="text-[11px] text-muted">
+              <span className="text-[11px] font-bold text-slate-500">
                 {absences.length} {absences.length === 1 ? 'record' : 'records'}
               </span>
             </div>
@@ -347,28 +437,28 @@ export default function ParentHome() {
               {absences.map((abs) => (
                 <div
                   key={abs.id}
-                  className="flex items-center justify-between rounded-xl border border-amber-200 bg-white p-3 text-xs"
+                  className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/70 p-3 text-xs shadow-2xs"
                 >
                   <div className="flex flex-col gap-0.5">
-                    <span className="font-bold text-ink">
+                    <span className="font-black text-slate-900">
                       {abs.trip_date} · {t(`home.absence.direction.${abs.direction}`) || abs.direction}
                     </span>
                     {abs.reason && (
-                      <span className="text-muted italic">&ldquo;{abs.reason}&rdquo;</span>
+                      <span className="text-slate-500 italic">&ldquo;{abs.reason}&rdquo;</span>
                     )}
                   </div>
                   <button
                     type="button"
                     disabled={cancellingAbsenceId === abs.id}
                     onClick={() => handleCancelAbsence(abs.id)}
-                    className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50"
+                    className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 active:scale-95 transition-all"
                   >
                     {cancellingAbsenceId === abs.id ? t('home.absence.cancelling') : t('home.absence.cancel')}
                   </button>
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-muted mt-0.5">{t('home.absence.driverNotice')}</p>
+            <p className="text-[11px] text-slate-500 font-medium">{t('home.absence.driverNotice')}</p>
           </section>
         )}
 
@@ -376,39 +466,39 @@ export default function ParentHome() {
 
       {/* Report Absence Modal */}
       {showAbsenceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-white/90">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-ink">{t('home.absence.title')}</h3>
+              <h3 className="text-lg font-black text-slate-900">{t('home.absence.title')}</h3>
               <button
                 type="button"
                 onClick={() => setShowAbsenceModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
-            <p className="mt-1 text-xs text-muted">{selectedChild?.fullName}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">Student: {selectedChild?.fullName}</p>
 
-            <form onSubmit={handleReportAbsence} className="mt-4 flex flex-col gap-4">
+            <form onSubmit={handleReportAbsence} className="mt-4 flex flex-col gap-3.5">
               <div>
-                <label className="text-xs font-semibold text-ink">{t('home.absence.date')}</label>
+                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.date')}</label>
                 <input
                   type="date"
                   required
                   min={todayStr}
                   value={absenceDate}
                   onChange={(e) => setAbsenceDate(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm"
+                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-ink">{t('home.absence.direction')}</label>
+                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.direction')}</label>
                 <select
                   value={absenceDirection}
                   onChange={(e) => setAbsenceDirection(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field bg-white p-2.5 text-sm"
+                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 >
                   <option value="both">{t('home.absence.direction.both')}</option>
                   <option value="morning">{t('home.absence.direction.morning')}</option>
@@ -417,28 +507,28 @@ export default function ParentHome() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-ink">{t('home.absence.reason')}</label>
+                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.reason')}</label>
                 <input
                   type="text"
                   placeholder={t('home.absence.reasonPlaceholder')}
                   value={absenceReason}
                   onChange={(e) => setAbsenceReason(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm"
+                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
 
-              <div className="mt-2 flex justify-end gap-3">
+              <div className="mt-2 flex justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowAbsenceModal(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-muted hover:bg-gray-50"
+                  className="btn-3d-subtle rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-600"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={reportingAbsence}
-                  className="rounded-xl bg-amber px-5 py-2.5 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
+                  className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
                 >
                   {reportingAbsence ? t('home.absence.submitting') : t('home.absence.submit')}
                 </button>
@@ -450,75 +540,75 @@ export default function ParentHome() {
 
       {/* Change Password Modal */}
       {showPassModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-white/90">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xl">🔐</span>
-                <h3 className="text-lg font-bold text-ink">Change Account Password</h3>
+                <h3 className="text-lg font-black text-slate-900">Change Account Password</h3>
               </div>
               <button
                 type="button"
                 onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
-                className="text-gray-400 hover:text-gray-600 font-bold"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
-            <p className="mt-1 text-xs text-muted">
+            <p className="mt-1 text-xs font-medium text-slate-500">
               Choose a secure permanent password for your parent portal account.
             </p>
 
             {passSuccess && (
-              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+              <div className="mt-3 rounded-2xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs font-bold text-emerald-900">
                 ✓ Password updated successfully!
               </div>
             )}
 
             {passErr && (
-              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+              <div className="mt-3 rounded-2xl border border-red-300 bg-red-50/90 p-3 text-xs font-bold text-red-700">
                 ✕ {passErr}
               </div>
             )}
 
             <form onSubmit={handlePasswordChange} className="mt-4 flex flex-col gap-3">
               <div>
-                <label className="text-xs font-bold text-ink">New Password</label>
+                <label className="text-xs font-extrabold text-slate-700">New Password</label>
                 <input
                   type="password"
                   required
                   value={newPass}
                   onChange={(e) => setNewPass(e.target.value)}
                   placeholder="At least 8 characters"
-                  className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+                  className="mt-1 min-h-11 w-full rounded-2xl border border-slate-200/90 bg-white/95 px-3.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-ink">Confirm Password</label>
+                <label className="text-xs font-extrabold text-slate-700">Confirm Password</label>
                 <input
                   type="password"
                   required
                   value={confirmPass}
                   onChange={(e) => setConfirmPass(e.target.value)}
                   placeholder="Repeat new password"
-                  className="mt-1 min-h-11 w-full rounded-xl border border-field px-3 text-sm text-ink focus:border-amber focus:outline-none"
+                  className="mt-1 min-h-11 w-full rounded-2xl border border-slate-200/90 bg-white/95 px-3.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
 
-              <div className="mt-2 flex justify-end gap-2">
+              <div className="mt-2 flex justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
                   disabled={changingPass}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+                  className="btn-3d-subtle rounded-2xl px-4 py-2 text-xs font-bold text-slate-600"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={changingPass}
-                  className="rounded-xl bg-ink px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+                  className="rounded-2xl bg-slate-900 px-5 py-2 text-xs font-black text-white shadow-md hover:bg-slate-800 disabled:opacity-50 active:scale-95 transition-all"
                 >
                   {changingPass ? 'Saving…' : 'Save Password'}
                 </button>

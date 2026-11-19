@@ -122,28 +122,30 @@ export default function Login() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col bg-white">
-      <div className="flex flex-1 flex-col justify-center gap-8 px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-8 sm:p-6">
+      <div className="card-3d flex flex-col justify-center gap-7 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.08)] border border-white/85">
 
-        {/* Branding */}
+        {/* Branding with 3D Amber Emblem */}
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber shadow-sm">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="12" rx="2" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 shadow-[0_8px_24px_rgba(245,179,1,0.38)] border border-amber-200/60 transform hover:scale-105 transition-transform duration-300">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="12" rx="3" />
               <path d="M3 11h18" />
-              <circle cx="8" cy="19" r="1.5" />
-              <circle cx="16" cy="19" r="1.5" />
+              <circle cx="8" cy="19" r="2" fill="currentColor" />
+              <circle cx="16" cy="19" r="2" fill="currentColor" />
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold text-ink">SchoolBus Connect</h1>
-            <p className="text-sm text-muted mt-0.5">Student Transportation Safety</p>
+            <h1 className="text-2xl sm:text-[26px] font-black tracking-tight text-slate-900">SchoolBus Connect</h1>
+            <p className="mt-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Safe Student Transit
+            </p>
           </div>
         </div>
 
         {/* Error Banner */}
         {(localError || authError) && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700">
+          <div className="card-3d rounded-2xl border-red-200 bg-red-50/90 p-3.5 text-xs font-bold text-red-700 shadow-2xs">
             {localError || authError}
           </div>
         )}
@@ -151,7 +153,7 @@ export default function Login() {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="identifier" className="text-sm font-semibold text-ink">
+            <label htmlFor="identifier" className="text-xs font-black uppercase tracking-wider text-slate-700">
               Email or Phone Number
             </label>
             <input
@@ -162,13 +164,13 @@ export default function Login() {
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               disabled={loading}
-              placeholder="your@email.com or 09xxxxxxxx"
-              className="min-h-12 rounded-xl border border-field bg-white px-3.5 text-base text-ink placeholder:text-gray-400 focus:border-amber focus:outline-none"
+              placeholder="e.g. 0911223344 or name@school.com"
+              className="min-h-12 rounded-2xl border border-slate-200/90 bg-white/90 px-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none transition-all"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-sm font-semibold text-ink">
+            <label htmlFor="password" className="text-xs font-black uppercase tracking-wider text-slate-700">
               Password
             </label>
             <input
@@ -180,63 +182,63 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
               placeholder="••••••••"
-              className="min-h-12 rounded-xl border border-field bg-white px-3.5 text-base text-ink placeholder:text-gray-400 focus:border-amber focus:outline-none"
+              className="min-h-12 rounded-2xl border border-slate-200/90 bg-white/90 px-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="mt-1 flex min-h-13 items-center justify-center rounded-xl bg-amber text-base font-bold text-ink shadow-sm hover:opacity-95 disabled:opacity-50 transition-opacity"
+            className="btn-3d-amber mt-2 flex min-h-13 items-center justify-center rounded-2xl text-base font-black text-slate-950 disabled:opacity-50"
           >
             {loading ? (
               <div className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink border-t-transparent" />
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
                 <span>Signing in…</span>
               </div>
             ) : (
-              'Sign In'
+              'Sign In →'
             )}
           </button>
 
-          <p className="text-center text-xs text-muted">
-            {t('login.forgot') || 'Your account is created by your school. Contact your school administrator if you have trouble signing in.'}
+          <p className="text-center text-[11px] leading-relaxed text-slate-500 font-medium">
+            {t('login.forgot') || 'Your account is created by your school. Contact your school administrator if you need assistance.'}
           </p>
         </form>
 
         {/* Language + Demo footer */}
-        <div className="flex flex-col items-center gap-4 border-t border-gray-100 pt-5">
+        <div className="flex flex-col items-center gap-3.5 border-t border-slate-200/80 pt-4">
           <LanguageSwitch />
-          <div className="flex flex-col gap-2 w-full text-xs text-muted">
-            <p className="text-center font-semibold text-ink">1-Click Demos</p>
-            <div className="flex flex-wrap justify-center gap-2">
+          <div className="flex flex-col gap-2 w-full text-xs text-slate-500">
+            <p className="text-center text-[11px] font-black uppercase tracking-wider text-slate-400">1-Click Test Accounts</p>
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => { signInDemo('parent'); navigate('/home') }}
-                className="rounded-lg border border-amber/40 bg-amber/10 px-3 py-1.5 font-bold text-amber-900 hover:bg-amber/20"
+                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-amber-900 border-amber-200/70 bg-amber-50/60"
               >
-                👨‍👩‍👧 Parent
+                👨‍👩‍👧 Parent Portal
               </button>
               <button
                 type="button"
                 onClick={() => { signInDemo('driver'); navigate('/driver') }}
-                className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 font-medium text-slate-700 hover:bg-gray-100"
+                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-slate-800"
               >
-                🚌 Driver
+                🚌 Driver Console
               </button>
               <button
                 type="button"
                 onClick={() => { signInDemo('manager'); navigate('/manager') }}
-                className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 font-medium text-slate-700 hover:bg-gray-100"
+                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-slate-800"
               >
-                🏫 Manager
+                🏫 School Manager
               </button>
               <button
                 type="button"
                 onClick={() => { signInDemo('owner'); navigate('/owner') }}
-                className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 font-bold text-purple-700 hover:bg-purple-100"
+                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-purple-900 border-purple-200/70 bg-purple-50/60"
               >
-                👑 Owner
+                👑 Platform Owner
               </button>
             </div>
           </div>
@@ -245,46 +247,46 @@ export default function Login() {
 
       {/* Set permanent password modal (shown after first login with temp password) */}
       {isFirstTimePasswordChange && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold text-ink">Set Your Password</h2>
-            <p className="mt-2 text-sm text-muted">
-              You are using a temporary password. Please choose a secure permanent password before continuing.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-white/90">
+            <h2 className="text-lg font-black text-slate-900">Set Your Permanent Password</h2>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              You are using a temporary password. Please set a secure permanent password before continuing.
             </p>
 
             {changeError && (
-              <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
+              <div className="mt-3 rounded-2xl bg-red-50/90 border border-red-200 p-3 text-xs font-bold text-red-700">
                 {changeError}
               </div>
             )}
 
-            <form onSubmit={handlePasswordChangeSubmit} className="mt-4 flex flex-col gap-4">
+            <form onSubmit={handlePasswordChangeSubmit} className="mt-4 flex flex-col gap-3">
               <div>
-                <label className="text-xs font-semibold text-ink">New Password</label>
+                <label className="text-xs font-extrabold text-slate-700">New Password</label>
                 <input
                   type="password"
                   required
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="At least 8 characters"
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm"
+                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-ink">Confirm New Password</label>
+                <label className="text-xs font-extrabold text-slate-700">Confirm New Password</label>
                 <input
                   type="password"
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repeat new password"
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm"
+                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
                 />
               </div>
               <button
                 type="submit"
                 disabled={changingPassword}
-                className="mt-2 rounded-xl bg-amber py-3 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
+                className="btn-3d-amber mt-2 rounded-2xl py-3 text-sm font-black text-slate-950 disabled:opacity-50"
               >
                 {changingPassword ? 'Saving…' : 'Save & Continue →'}
               </button>

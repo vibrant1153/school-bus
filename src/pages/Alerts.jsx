@@ -68,17 +68,17 @@ export default function Alerts() {
   ]
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-gray-50">
-      <main className="flex flex-1 flex-col gap-4 p-5 pb-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl sm:text-[22px] font-extrabold text-ink">{t('alerts.title')}</h1>
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col">
+      <main className="flex flex-1 flex-col gap-4 p-4 sm:p-5 pb-8">
+        <header className="card-3d flex items-center justify-between gap-3 rounded-2xl px-4 py-3">
+          <h1 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">{t('alerts.title')}</h1>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitch />
             <button
               type="button"
               onClick={signOut}
               aria-label="Sign out"
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs sm:text-sm font-bold text-red-600 shadow-xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
+              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/80 px-3 py-1.5 text-xs font-black text-red-600 shadow-2xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
             >
               <span aria-hidden="true">🚪</span>
               <span>Log Out</span>
@@ -86,14 +86,50 @@ export default function Alerts() {
           </div>
         </header>
 
+        {/* Near-Stop Alert Preference (200m / 500m / 1km) - 3D Segmented Control */}
+        <section className="card-3d flex flex-col gap-3 rounded-3xl p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <span>🔔</span>
+              <span>Arrival Alert Distance</span>
+            </h2>
+            <span className="text-[11px] font-bold text-slate-400">
+              When bus approaches
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {ALERT_PRESETS.map((preset) => {
+              const selected = preset.meters === alertMeters
+              return (
+                <button
+                  key={preset.meters}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => updateAlertRadius(preset.meters)}
+                  className={
+                    'min-h-11 rounded-2xl text-xs font-black transition-all ' +
+                    (selected
+                      ? 'btn-3d-amber text-slate-950 scale-[1.02]'
+                      : 'btn-3d-subtle text-slate-600')
+                  }
+                >
+                  {formatRadius(preset.meters, t)}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[11px] font-medium text-slate-500 leading-relaxed">{t('home.alert.note')}</p>
+        </section>
+
         {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber border-t-transparent" />
+          <div className="card-3d flex h-32 items-center justify-center rounded-3xl">
+            <div className="h-8 w-8 animate-spin rounded-full border-3 border-amber border-t-transparent" />
           </div>
         ) : alerts.length === 0 ? (
-          <p className="rounded-2xl bg-white p-5 text-[15px] text-muted shadow-xs">
+          <div className="card-3d rounded-3xl p-6 text-center text-sm font-semibold text-slate-500">
             {t('alerts.empty')}
-          </p>
+          </div>
         ) : (
           groups.map((group) => {
             const items = alerts.filter((a) => getAlertGroup(a) === group.day)
@@ -101,23 +137,23 @@ export default function Alerts() {
 
             return (
               <section key={group.day} className="flex flex-col gap-2">
-                <h2 className="text-sm font-bold text-muted">{group.title}</h2>
+                <h2 className="text-xs font-black uppercase tracking-wider text-slate-400 px-1">{group.title}</h2>
                 <ul className="flex flex-col gap-2">
                   {items.map((alert) => {
                     const eventType = alert.event_type || alert.type || 'tripStarted'
                     return (
                       <li
                         key={alert.id}
-                        className="flex items-start gap-3 rounded-2xl bg-white p-4 shadow-xs"
+                        className="card-3d card-3d-interactive flex items-start gap-3 rounded-2xl p-4"
                       >
                         <span
-                          className={'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ' + (DOT[eventType] || 'bg-field')}
+                          className={'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full shadow-2xs ' + (DOT[eventType] || 'bg-slate-400')}
                           aria-hidden="true"
                         />
-                        <p className="flex-1 text-[15px] leading-snug text-ink">
+                        <p className="flex-1 text-sm font-semibold leading-snug text-slate-900">
                           {formatAlertText(alert, t)}
                         </p>
-                        <time className="shrink-0 text-[13px] text-muted">
+                        <time className="shrink-0 text-xs font-bold text-slate-400">
                           {getAlertTime(alert)}
                         </time>
                       </li>
@@ -129,39 +165,9 @@ export default function Alerts() {
           })
         )}
 
-        <section className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-xs">
-          <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
-            <span>🔔</span>
-            <span>Alert me when bus is within</span>
-          </h2>
-          <div className="flex gap-2">
-            {ALERT_PRESETS.map((preset) => {
-              const selected = preset.meters === alertMeters
-              return (
-                <button
-                  key={preset.meters}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => updateAlertRadius(preset.meters)}
-                  className={
-                    'min-h-10 flex-1 rounded-xl text-xs font-semibold transition-all ' +
-                    (selected
-                      ? 'bg-ink font-bold text-white shadow-xs'
-                      : 'border border-gray-200 bg-white text-ink hover:bg-gray-50')
-                  }
-                >
-                  {formatRadius(preset.meters, t)}
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-[11px] text-muted">{t('home.alert.note')}</p>
-        </section>
-
-        <p className="rounded-xl bg-[#FFF6E0] p-3 text-sm leading-relaxed text-amber-900">
+        <div className="card-3d rounded-2xl border-amber-300 bg-amber-50/90 p-3.5 text-xs font-semibold leading-relaxed text-amber-950">
           {t('alerts.disclaimer')}
-        </p>
-        <p className="text-[13px] text-muted">{t('alerts.note')}</p>
+        </div>
       </main>
       <ParentNav active="alerts" />
     </div>
