@@ -76,14 +76,6 @@ export default function ManagerLayout() {
           <div className="flex items-center gap-1.5 lg:hidden">
             <button
               type="button"
-              onClick={() => { setShowPassModal(true); setChangeErr(''); setChangeSuccess(false); setNewPass(''); setConfirmPass('') }}
-              aria-label="Change Password"
-              className="flex items-center gap-1 rounded-xl border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/20 active:scale-95 transition-all shadow-xs"
-            >
-              <span>🔑</span>
-            </button>
-            <button
-              type="button"
               onClick={signOut}
               aria-label="Sign out"
               className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white active:scale-95 transition-all shadow-xs"
@@ -174,19 +166,10 @@ export default function ManagerLayout() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-xs text-muted">
               <span className="font-semibold text-ink">{managerName}</span>
-              <span className="rounded-full bg-amber/20 px-2 py-0.5 font-bold text-amber-900">
+              <span className="rounded-full bg-amber/20 px-2.5 py-0.5 font-bold text-amber-900">
                 Manager
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => { setShowPassModal(true); setChangeErr(''); setChangeSuccess(false); setNewPass(''); setConfirmPass('') }}
-              aria-label="Change Password"
-              className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-gray-100 active:scale-95 transition-all"
-            >
-              <span>🔑</span>
-              <span>Password</span>
-            </button>
             <button
               type="button"
               onClick={signOut}

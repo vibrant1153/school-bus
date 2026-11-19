@@ -373,32 +373,22 @@ export default function Students() {
                   </span>
                 </td>
                 <td className="py-3.5 text-right">
-                  <div className="flex items-center justify-end gap-1.5">
+                  <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => openAssignModal(s)}
-                      className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-900 hover:bg-amber-100 hover:border-amber-400 transition-colors shadow-2xs"
+                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-950 hover:bg-amber-100 hover:border-amber-400 active:scale-95 transition-all shadow-2xs"
                       title={`Assign route, stop or link parent for ${s.fullName}`}
                     >
-                      ✏️ Assign / Link
+                      Manage
                     </button>
-                    {s.guardianId && (
-                      <button
-                        type="button"
-                        onClick={() => { setParentToUnlink(s); setActionError('') }}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-semibold text-muted hover:bg-gray-100 hover:text-ink transition-colors"
-                        title={`Unlink parent ${s.parentName} from ${s.fullName}`}
-                      >
-                        Unlink Parent
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => { setStudentToDelete(s); setActionError('') }}
-                      className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors shadow-xs"
+                      className="flex h-7 w-7 items-center justify-center rounded-xl border border-gray-200 bg-white text-xs text-red-500 hover:bg-red-50 hover:border-red-300 active:scale-95 transition-all"
                       title={`Delete ${s.fullName} from roster`}
                     >
-                      🗑️ Delete
+                      🗑️
                     </button>
                   </div>
                 </td>

@@ -20,6 +20,7 @@ export default function BusesRoutes() {
   const [selectedBusId, setSelectedBusId] = useState(null)
   const [selectedRouteId, setSelectedRouteId] = useState(null)
   const [direction, setDirection] = useState('Morning')
+  const [showAddMenu, setShowAddMenu] = useState(false)
 
   // Add Bus Modal State
   const [showAddBusModal, setShowAddBusModal] = useState(false)
@@ -374,28 +375,50 @@ export default function BusesRoutes() {
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setShowDriverModal(true)}
-            className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-bold text-ink hover:bg-gray-50 shadow-xs"
+            onClick={() => setShowAddMenu((prev) => !prev)}
+            className="flex items-center gap-2 rounded-2xl bg-amber px-5 py-2.5 text-xs font-black text-ink shadow-sm hover:opacity-95 active:scale-95 transition-all"
           >
-            + Provision Driver
+            <span>+ Add New</span>
+            <span className="text-[10px]">{showAddMenu ? '▲' : '▼'}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setShowAddRouteModal(true)}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-ink hover:bg-gray-50 shadow-xs"
-          >
-            + Add Route
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAddBusModal(true)}
-            className="rounded-xl bg-amber px-4 py-2.5 text-xs font-bold text-ink hover:opacity-95 shadow-xs"
-          >
-            + Add Bus
-          </button>
+
+          {showAddMenu && (
+            <div
+              className="absolute right-0 top-full mt-2 z-30 w-48 rounded-2xl border border-gray-100 bg-white p-2 shadow-xl"
+              role="menu"
+            >
+              <button
+                type="button"
+                onClick={() => { setShowAddMenu(false); setShowAddBusModal(true) }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold text-ink hover:bg-amber/15 hover:text-amber-950 transition-colors"
+                role="menuitem"
+              >
+                <span>🚌</span>
+                <span>Add Bus</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowAddMenu(false); setShowAddRouteModal(true) }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold text-ink hover:bg-amber/15 hover:text-amber-950 transition-colors"
+                role="menuitem"
+              >
+                <span>🛣️</span>
+                <span>Add Route</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowAddMenu(false); setShowDriverModal(true) }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold text-ink hover:bg-amber/15 hover:text-amber-950 transition-colors"
+                role="menuitem"
+              >
+                <span>👤</span>
+                <span>Provision Driver</span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
