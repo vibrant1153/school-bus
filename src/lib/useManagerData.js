@@ -464,6 +464,124 @@ export function useManagerData() {
     return data
   }
 
+  // Mutation 3d: Bulk Import Students (from CSV / File)
+  async function bulkAddStudents(studentsList, { generateInvites = false } = {}) {
+    if (!Array.isArray(studentsList) || studentsList.length === 0) {
+      throw new Error('No students provided for bulk import.')
+    }
+    if (!schoolId) throw new Error('Manager must be assigned to a school.')
+
+    // Normalize phone numbers and prepare insert payloads
+    const preparedRows = studentsList.map((s) => {
+      let cleanPhone = null
+      if (s.parentPhone?.trim()) {
+        let digits = s.parentPhone.trim().replace(/\D/g, '')
+        if (digits.startsWith('09') || digits.startsWith('07')) {
+          digits = '251' + digits.slice(1)
+        } else if ((digits.startsWith('9') || digits.startsWith('7')) && digits.length === 9) {
+          digits = '251' + digits
+        }
+        cleanPhone = digits.startsWith('251') && digits.length === 12 ? `+${digits}` : s.parentPhone.trim()
+      }
+
+      return {
+        school_id: schoolId,
+        full_name: (s.fullName || s.name || '').trim(),
+        grade: Number(s.grade) || null,
+        parent_phone: cleanPhone,
+        is_active: true,
+      }
+    }).filter((r) => Boolean(r.full_name))
+
+    if (preparedRows.length === 0) {
+      throw new Error('No valid student records with names found in file.')
+    }
+
+    // 1. Insert students in batch into Supabase
+    const { data: insertedStudents, error: insertErr } = await supabase
+      .from('students')
+      .insert(preparedRows)
+      .select('id, full_name, parent_phone, school_id')
+
+    if (insertErr) throw insertErr
+
+    // 2. Associate stops where provided
+    const stopAssignments = []
+    insertedStudents.forEach((student, idx) => {
+      const original = studentsList[idx]
+      const targetStopId = original?.matchedStopId || original?.stopId
+      if (targetStopId) {
+        stopAssignments.push({
+          school_id: schoolId,
+          student_id: student.id,
+          stop_id: targetStopId,
+          direction: 'morning',
+        })
+        stopAssignments.push({
+          school_id: schoolId,
+          student_id: student.id,
+          stop_id: targetStopId,
+          direction: 'afternoon',
+        })
+      }
+    })
+
+    if (stopAssignments.length > 0) {
+      try {
+        await supabase.from('student_stops').insert(stopAssignments)
+      } catch (stopErr) {
+        console.warn('Warning inserting bulk student stops:', stopErr)
+      }
+    }
+
+    // 3. Optional batch generation of parent invitation links
+    const generatedInvites = []
+    if (generateInvites) {
+      const session = (await supabase.auth.getSession())?.data?.session
+      const token = session?.access_token
+      if (token) {
+        for (const student of insertedStudents) {
+          if (student.parent_phone) {
+            try {
+              const res = await fetch('/api/generate-invite', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  student_id: student.id,
+                  phone_number: student.parent_phone,
+                }),
+              })
+              const data = await res.json().catch(() => ({}))
+              if (res.ok && data.token) {
+                generatedInvites.push({
+                  studentId: student.id,
+                  studentName: student.full_name,
+                  phoneNumber: student.parent_phone,
+                  token: data.token,
+                  url: `${window.location.origin}/invite/${data.token}`,
+                  expiresAt: data.expires_at,
+                })
+              }
+            } catch (invErr) {
+              console.warn(`Could not auto-generate invite for ${student.full_name}:`, invErr)
+            }
+          }
+        }
+      }
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return {
+      success: true,
+      count: insertedStudents.length,
+      students: insertedStudents,
+      invitations: generatedInvites,
+    }
+  }
+
   // Mutation 4: Add Bus & License Plate
   async function addBus({ busNumber, plateNumber, capacity }) {
     if (!busNumber) throw new Error('Bus number is required.')
@@ -934,6 +1052,7 @@ export function useManagerData() {
     updateSchoolSettings,
     purgeLocationHistory,
     addStudent,
+    bulkAddStudents,
     addBus,
     endTrip,
     deleteStudent,

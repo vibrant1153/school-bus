@@ -1,14 +1,21 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
+import {
+  parseStudentFile,
+  downloadStudentTemplateCsv,
+  downloadInvitesCsv,
+} from '../lib/fileParser.js'
 
 const FIELD = 'min-h-11 rounded-xl border border-field bg-white px-3.5 text-sm focus:border-amber focus:outline-none transition-all'
 
 export default function Students() {
   const {
+    school,
     students,
     routes,
     loading,
     addStudent,
+    bulkAddStudents,
     deleteStudent,
     unlinkParent,
     assignStudentStop,
@@ -30,6 +37,19 @@ export default function Students() {
   const [newStopId, setNewStopId] = useState('')
   const [adding, setAdding] = useState(false)
   const [modalError, setModalError] = useState(null)
+
+  // Bulk CSV / File Import state
+  const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkFile, setBulkFile] = useState(null)
+  const [parsedRoster, setParsedRoster] = useState(null)
+  const [parsingFile, setParsingFile] = useState(false)
+  const [importingBatch, setImportingBatch] = useState(false)
+  const [autoGenInvites, setAutoGenInvites] = useState(true)
+  const [importResult, setImportResult] = useState(null)
+  const [bulkError, setBulkError] = useState(null)
+  const [copiedBatchInvites, setCopiedBatchInvites] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef(null)
 
   // Invitation Modal State
   const [inviteModalStudent, setInviteModalStudent] = useState(null)
@@ -57,7 +77,70 @@ export default function Students() {
   const [toastMessage, setToastMessage] = useState(null)
   const [initRoutesLoading, setInitRoutesLoading] = useState(false)
 
-  // 1. Open Invite Modal for a student
+  // 1. File Upload & Parse Handlers
+  async function handleFileSelect(file) {
+    if (!file) return
+    setBulkFile(file)
+    setParsingFile(true)
+    setBulkError(null)
+    setImportResult(null)
+
+    try {
+      const result = await parseStudentFile(file, routes)
+      setParsedRoster(result)
+    } catch (err) {
+      console.error('File parse error:', err)
+      setBulkError(err.message || 'Failed to parse file. Please verify CSV or text formatting.')
+    } finally {
+      setParsingFile(false)
+    }
+  }
+
+  async function handleExecuteBulkImport() {
+    if (!parsedRoster || parsedRoster.rows.length === 0) return
+    setImportingBatch(true)
+    setBulkError(null)
+
+    try {
+      const validRows = parsedRoster.rows.filter((r) => r.status !== 'error')
+      if (validRows.length === 0) {
+        throw new Error('No valid students to import. Please ensure students have names.')
+      }
+
+      const res = await bulkAddStudents(validRows, {
+        generateInvites: autoGenInvites,
+      })
+
+      setImportResult(res)
+      setToastMessage(`Successfully imported ${res.count} students!`)
+    } catch (err) {
+      console.error('Bulk import error:', err)
+      setBulkError(err.message || 'Failed to complete bulk student import.')
+    } finally {
+      setImportingBatch(false)
+    }
+  }
+
+  function handleResetBulkModal() {
+    setBulkFile(null)
+    setParsedRoster(null)
+    setBulkError(null)
+    setImportResult(null)
+    setCopiedBatchInvites(false)
+    setShowBulkModal(false)
+  }
+
+  function handleCopyAllInvites() {
+    if (!importResult?.invitations?.length) return
+    const text = importResult.invitations
+      .map((inv) => `${inv.studentName} (${inv.phoneNumber}): ${inv.url}`)
+      .join('\n')
+    navigator.clipboard.writeText(text)
+    setCopiedBatchInvites(true)
+    setTimeout(() => setCopiedBatchInvites(false), 3000)
+  }
+
+  // 2. Open Invite Modal for a student
   function openInviteModal(student) {
     setInviteModalStudent(student)
     setInvitePhoneNumber(student.parentPhone || '')
@@ -65,7 +148,6 @@ export default function Students() {
     setInviteError(null)
     setCopiedLink(false)
 
-    // If student already has a pending invite and phone is set, auto-generate or prompt
     if (student.parentPhone) {
       handleGenerateInvite(student, student.parentPhone)
     }
@@ -157,7 +239,7 @@ export default function Students() {
     window.location.href = smsUrl
   }
 
-  // 2. Open Stop Assignment modal
+  // 3. Open Stop Assignment modal
   function openAssignStopModal(student) {
     setStudentToAssignStop(student)
     const initialRoute = student.routeId || (routes[0]?.id || '')
@@ -219,7 +301,6 @@ export default function Students() {
 
       setToastMessage(`Added student "${createdStudent.full_name}" successfully!`)
 
-      // If parent phone was provided, prompt immediately with the invite link modal
       if (newParentPhone.trim() && createdStudent?.id) {
         openInviteModal({
           id: createdStudent.id,
@@ -324,14 +405,33 @@ export default function Students() {
             {students.length} students enrolled · Invitation-based parent linking system
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="btn-3d-amber flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-black text-slate-950 shadow-sm"
-        >
-          <span className="text-base leading-none">＋</span>
-          <span>Add Student</span>
-        </button>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setBulkFile(null)
+              setParsedRoster(null)
+              setBulkError(null)
+              setImportResult(null)
+              setShowBulkModal(true)
+            }}
+            className="btn-3d-subtle flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:text-slate-950"
+            title="Upload CSV, TSV, or spreadsheet export of students"
+          >
+            <span>📁</span>
+            <span>Import CSV / File</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="btn-3d-amber flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-black text-slate-950 shadow-sm"
+          >
+            <span className="text-base leading-none">＋</span>
+            <span>Add Student</span>
+          </button>
+        </div>
       </header>
 
       {/* Route Setup Alert Banner when school has 0 routes */}
@@ -567,6 +667,284 @@ export default function Students() {
         </div>
       </section>
 
+      {/* Bulk CSV / File Import Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-2xl rounded-3xl p-6 shadow-2xl border border-white/90 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-lg shadow-2xs">
+                  📁
+                </span>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">Import Students from File</h3>
+                  <p className="text-xs text-slate-500 font-medium">Bulk upload CSV, TSV, or spreadsheet export</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetBulkModal}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {bulkError && (
+              <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
+                ✕ {bulkError}
+              </div>
+            )}
+
+            {/* Step 1: No file selected yet */}
+            {!parsedRoster && !importResult && (
+              <div className="mt-5 flex flex-col gap-4">
+                {/* Drag and Drop Zone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setIsDragging(false)
+                    const file = e.dataTransfer.files?.[0]
+                    if (file) handleFileSelect(file)
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={
+                    'cursor-pointer rounded-3xl border-2 border-dashed p-8 text-center transition-all flex flex-col items-center justify-center gap-3 ' +
+                    (isDragging
+                      ? 'border-amber bg-amber-50/60 scale-[1.01]'
+                      : 'border-slate-300 bg-slate-50/70 hover:bg-slate-100/60 hover:border-slate-400')
+                  }
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.tsv,.txt,.json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleFileSelect(file)
+                    }}
+                  />
+                  <span className="text-4xl">📄</span>
+                  <div>
+                    <p className="text-sm font-black text-slate-800">
+                      {parsingFile ? 'Reading & parsing file…' : 'Drop your student roster CSV file here, or browse'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Supports .csv, .tsv, .txt, or .json with student name, grade, parent phone, and bus stop.
+                    </p>
+                  </div>
+                  <span className="btn-3d-subtle rounded-xl px-4 py-2 text-xs font-black text-slate-800">
+                    Browse Files
+                  </span>
+                </div>
+
+                {/* Sample Template & Help */}
+                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800">Need a format template?</h4>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Download our ready-to-use CSV template pre-filled with column headers and examples.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => downloadStudentTemplateCsv(routes)}
+                    className="btn-3d-subtle rounded-xl px-3.5 py-2 text-xs font-black text-slate-900"
+                  >
+                    📥 Download CSV Template
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: File Parsed - Show Smart Preview */}
+            {parsedRoster && !importResult && (
+              <div className="mt-5 flex flex-col gap-4">
+                {/* Stats Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200/80 p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-slate-800">{bulkFile?.name}</span>
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                      {parsedRoster.totalCount} rows detected
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[11px]">
+                      ✓ {parsedRoster.validCount} Valid
+                    </span>
+                    {parsedRoster.warningCount > 0 && (
+                      <span className="rounded-full bg-amber-100 text-amber-900 px-2.5 py-0.5 text-[11px]">
+                        ⚠️ {parsedRoster.warningCount} Warnings
+                      </span>
+                    )}
+                    {parsedRoster.errorCount > 0 && (
+                      <span className="rounded-full bg-rose-100 text-rose-800 px-2.5 py-0.5 text-[11px]">
+                        ✕ {parsedRoster.errorCount} Errors
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Option: Auto Generate Invites */}
+                <label className="flex items-center gap-2.5 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoGenInvites}
+                    onChange={(e) => setAutoGenInvites(e.target.checked)}
+                    className="h-4 w-4 rounded accent-amber-500 cursor-pointer"
+                  />
+                  <div className="text-xs">
+                    <span className="font-extrabold text-amber-950">
+                      Automatically generate parent invitation links
+                    </span>
+                    <p className="text-[11px] text-amber-900/80 font-medium">
+                      Creates 1-click single-use invitation links for all students with parent phone numbers.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Preview Table */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 max-h-60 overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5">#</th>
+                        <th className="p-2.5">Student Name</th>
+                        <th className="p-2.5">Grade</th>
+                        <th className="p-2.5">Parent Phone</th>
+                        <th className="p-2.5">Bus Stop</th>
+                        <th className="p-2.5">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {parsedRoster.rows.map((row) => (
+                        <tr key={row.index} className={row.status === 'error' ? 'bg-red-50/50' : ''}>
+                          <td className="p-2.5 text-slate-400 font-mono text-[10px]">{row.index}</td>
+                          <td className="p-2.5 font-bold text-slate-900">{row.fullName || <span className="text-red-500 italic">Missing Name</span>}</td>
+                          <td className="p-2.5 text-slate-600">{row.grade !== null ? `Grade ${row.grade}` : (row.rawGrade || '—')}</td>
+                          <td className="p-2.5 font-mono text-slate-700">{row.parentPhone || <span className="text-slate-400 italic">None</span>}</td>
+                          <td className="p-2.5">
+                            {row.matchedStopName ? (
+                              <span className="text-emerald-700 font-medium">✓ {row.matchedStopName}</span>
+                            ) : row.targetStopName ? (
+                              <span className="text-amber-800 text-[11px]">⚠️ {row.targetStopName} (unmatched)</span>
+                            ) : (
+                              <span className="text-slate-400">No stop</span>
+                            )}
+                          </td>
+                          <td className="p-2.5">
+                            {row.status === 'valid' ? (
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">Ready</span>
+                            ) : row.status === 'warning' ? (
+                              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">{row.issues[0]}</span>
+                            ) : (
+                              <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">Error</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="mt-2 flex items-center justify-between pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => { setBulkFile(null); setParsedRoster(null) }}
+                    className="text-xs font-bold text-slate-600 hover:text-slate-900"
+                  >
+                    ← Choose Different File
+                  </button>
+                  <div className="flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleResetBulkModal}
+                      className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={importingBatch || parsedRoster.validCount + parsedRoster.warningCount === 0}
+                      onClick={handleExecuteBulkImport}
+                      className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
+                    >
+                      {importingBatch
+                        ? 'Importing Roster…'
+                        : `Import ${parsedRoster.validCount + parsedRoster.warningCount} Students ⚡`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Success State */}
+            {importResult && (
+              <div className="mt-5 flex flex-col gap-4 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-emerald-100 text-3xl shadow-sm">
+                  🎉
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Import Successful!</h3>
+                  <p className="mt-1 text-xs text-slate-600 font-medium">
+                    Successfully enrolled <strong>{importResult.count} students</strong> into your school bus roster.
+                  </p>
+                </div>
+
+                {importResult.invitations?.length > 0 && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-left flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-emerald-950">
+                        ✉️ {importResult.invitations.length} Parent Invitation Links Generated
+                      </span>
+                      <span className="text-[11px] font-bold text-emerald-800">
+                        Valid 72h
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-900 leading-relaxed font-medium">
+                      You can download these links as a CSV spreadsheet to send via bulk SMS/WhatsApp broadcast, or copy them to your clipboard.
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => downloadInvitesCsv(importResult.invitations, school?.name || 'School')}
+                        className="btn-3d-amber flex-1 rounded-xl py-2 px-3 text-xs font-black text-slate-950 shadow-2xs"
+                      >
+                        📥 Download Links CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyAllInvites}
+                        className="btn-3d-subtle flex-1 rounded-xl py-2 px-3 text-xs font-black text-slate-900 shadow-2xs"
+                      >
+                        {copiedBatchInvites ? '✓ Copied All Links!' : '📋 Copy All Links'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetBulkModal}
+                    className="btn-3d-amber w-full rounded-2xl py-3 text-sm font-black text-slate-950 shadow-sm"
+                  >
+                    Done &amp; View Roster →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Add Student Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
@@ -721,7 +1099,6 @@ export default function Students() {
               </div>
             )}
 
-            {/* If no link generated yet, ask/confirm phone and button */}
             {!inviteLinkData ? (
               <div className="mt-4 flex flex-col gap-4">
                 <p className="text-xs text-slate-600 font-medium leading-relaxed">
@@ -762,7 +1139,6 @@ export default function Students() {
                 </div>
               </div>
             ) : (
-              /* Invitation Link is ready */
               <div className="mt-4 flex flex-col gap-4">
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3.5 flex flex-col gap-1.5">
                   <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
@@ -793,7 +1169,6 @@ export default function Students() {
                   </div>
                 </div>
 
-                {/* Instant Share Actions */}
                 <div className="flex flex-col gap-2 pt-1">
                   <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
                     Share directly with parent:
@@ -818,7 +1193,6 @@ export default function Students() {
                   </div>
                 </div>
 
-                {/* Revoke / Regenerate */}
                 <div className="mt-2 border-t border-slate-100 pt-3 flex items-center justify-between">
                   <button
                     type="button"
