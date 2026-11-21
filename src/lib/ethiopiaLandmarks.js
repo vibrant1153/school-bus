@@ -82,6 +82,21 @@ export const QUICK_CHIP_LANDMARKS = [
 ]
 
 /**
+ * Returns landmark suggestions based on search query.
+ * Fast, 0ms, matching both landmark names and neighborhood areas.
+ */
+export function searchEthiopiaLandmarks(query) {
+  if (!query || !query.trim()) {
+    return ETHIOPIA_LANDMARKS.slice(0, 6)
+  }
+  const clean = query.trim().toLowerCase()
+  return ETHIOPIA_LANDMARKS.filter((l) =>
+    l.name.toLowerCase().includes(clean) ||
+    (l.area && l.area.toLowerCase().includes(clean))
+  ).slice(0, 8)
+}
+
+/**
  * Searches local Ethiopian landmarks first (instant, 0ms, offline-safe).
  * If not found, attempts free OpenStreetMap Nominatim geocoding in Addis Ababa.
  */

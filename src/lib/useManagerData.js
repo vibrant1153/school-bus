@@ -908,6 +908,61 @@ export function useManagerData() {
     return { success: true, route: data }
   }
 
+  // Mutation 12b: Update Route
+  async function updateRoute({ routeId, name, startTime }) {
+    if (!routeId) throw new Error('Route ID is required.')
+    const updates = {}
+    if (name?.trim()) updates.name = name.trim()
+    if (startTime) {
+      let formattedTime = startTime.trim()
+      if (formattedTime.length === 5) formattedTime = `${formattedTime}:00`
+      updates.start_time = formattedTime
+    }
+
+    const { error: routeErr } = await supabase
+      .from('routes')
+      .update(updates)
+      .eq('id', routeId)
+      .eq('school_id', schoolId)
+
+    if (routeErr) throw routeErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 12c: Delete Route
+  async function deleteRoute(routeId) {
+    if (!routeId) throw new Error('Route ID is required.')
+    const { error: routeErr } = await supabase
+      .from('routes')
+      .delete()
+      .eq('id', routeId)
+      .eq('school_id', schoolId)
+
+    if (routeErr) throw routeErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 12d: Update Stop
+  async function updateStop({ stopId, name, lat, lng, isSchool }) {
+    if (!stopId) throw new Error('Stop ID is required.')
+    const updates = {}
+    if (name?.trim()) updates.name = name.trim()
+    if (lat !== undefined) updates.lat = Number(lat)
+    if (lng !== undefined) updates.lng = Number(lng)
+    if (isSchool !== undefined) updates.is_school = Boolean(isSchool)
+
+    const { error: stopErr } = await supabase
+      .from('stops')
+      .update(updates)
+      .eq('id', stopId)
+
+    if (stopErr) throw stopErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
   // Mutation 13: Add New Stop to Route
   async function addStopToRoute({ routeId, name, lat, lng, isSchool, sequenceMorning }) {
     if (!routeId) throw new Error('Route is required.')
@@ -1111,7 +1166,10 @@ export function useManagerData() {
     initializeDefaultRoutesAndBuses,
     assignBusToRouteAndDriver,
     addRoute,
+    updateRoute,
+    deleteRoute,
     addStopToRoute,
+    updateStop,
     deleteStop,
     reorderStops,
     deleteBus,
