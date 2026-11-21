@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* New Master Design System Palette */
+  /* Master Design System Palette */
   --color-sidebar: #101828;
   --color-primary: #1D3557;
   --color-primary-dark: #14243b;
@@ -16,7 +16,7 @@
   --color-border: #E2E8F0;
   --color-danger: #DC2626;
 
-  /* Legacy tokens mapped directly to the new palette */
+  /* Legacy tokens mapped directly to the palette */
   --color-ink: #172033;
   --color-muted: #64748B;
   --color-line: #E2E8F0;
@@ -37,132 +37,92 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(at 0% 0%, rgba(13, 148, 136, 0.05) 0px, transparent 40%),
-              radial-gradient(at 100% 10%, rgba(29, 53, 87, 0.04) 0px, transparent 40%),
-              #F8FAFC;
+  background-color: #F8FAFC;
   color: #172033;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* 3D Modern Card: Clean white card, crisp border, elegant soft shadow */
+/* Restrained, Purposeful Panel */
+.panel-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(16, 24, 40, 0.04);
+}
+
+/* Card 3D: Restrained to clean elevation */
 .card-3d {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  box-shadow:
-    0 1px 3px rgba(16, 24, 40, 0.04),
-    0 8px 24px -4px rgba(16, 24, 40, 0.05);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.03), 0 4px 12px -2px rgba(16, 24, 40, 0.03);
 }
 
 .card-3d-interactive:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 3px 6px rgba(16, 24, 40, 0.04),
-    0 16px 32px -4px rgba(16, 24, 40, 0.08),
-    0 0 0 1px #CBD5E1;
+  border-color: #CBD5E1;
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.05), 0 8px 16px -4px rgba(16, 24, 40, 0.04);
 }
 
-.card-3d-interactive:active {
-  transform: translateY(0.5px);
-  box-shadow:
-    0 1px 2px rgba(16, 24, 40, 0.06),
-    0 4px 12px -2px rgba(16, 24, 40, 0.04);
-}
-
-/* 3D Accent Button (#0D9488 Teal): Main Call-to-Action */
+/* Professional Button System */
+.btn-accent,
 .btn-3d-amber,
 .btn-3d-accent {
-  background: linear-gradient(180deg, #14B8A6 0%, #0D9488 100%);
-  border: 1px solid rgba(13, 148, 136, 0.6);
+  background: #0D9488;
   color: #FFFFFF !important;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 4px 14px -2px rgba(13, 148, 136, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -2px 0 rgba(15, 118, 110, 0.4);
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid #0F766E;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease-in-out;
 }
 
+.btn-accent:hover,
 .btn-3d-amber:hover,
 .btn-3d-accent:hover {
-  filter: brightness(1.05);
-  transform: translateY(-1px);
-  box-shadow:
-    0 3px 6px rgba(0, 0, 0, 0.06),
-    0 8px 20px -2px rgba(13, 148, 136, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  background: #0F766E;
+  border-color: #115E59;
 }
 
-.btn-3d-amber:active,
-.btn-3d-accent:active {
-  transform: translateY(1.5px);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 2px 6px -1px rgba(13, 148, 136, 0.25),
-    inset 0 2px 3px rgba(0, 0, 0, 0.15);
-}
-
-/* 3D Primary Button (#1D3557 Deep Navy) */
+.btn-primary,
 .btn-3d-primary {
-  background: linear-gradient(180deg, #254673 0%, #1D3557 100%);
-  border: 1px solid rgba(29, 53, 87, 0.6);
+  background: #1D3557;
   color: #FFFFFF !important;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 4px 14px -2px rgba(29, 53, 87, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -2px 0 rgba(17, 32, 53, 0.4);
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid #14243B;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease-in-out;
 }
 
+.btn-primary:hover,
 .btn-3d-primary:hover {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
+  background: #14243B;
+  border-color: #0F172A;
 }
 
-.btn-3d-primary:active {
-  transform: translateY(1px);
-}
-
-/* 3D Subtle White Button */
+.btn-subtle,
 .btn-3d-subtle {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   color: #172033;
-  box-shadow:
-    0 1px 2px rgba(16, 24, 40, 0.04),
-    0 4px 12px -2px rgba(16, 24, 40, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.02);
+  transition: all 0.15s ease-in-out;
 }
 
+.btn-subtle:hover,
 .btn-3d-subtle:hover {
   background: #F8FAFC;
   border-color: #CBD5E1;
   color: #0D9488;
-  transform: translateY(-1px);
-  box-shadow:
-    0 2px 4px rgba(16, 24, 40, 0.05),
-    0 6px 16px -2px rgba(16, 24, 40, 0.06);
-}
-
-.btn-3d-subtle:active {
-  transform: translateY(1px);
-  box-shadow:
-    0 1px 1px rgba(16, 24, 40, 0.05),
-    inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* Floating Glass Dock Navigation */
 .nav-glass-dock {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid #E2E8F0;
-  box-shadow:
-    0 -4px 20px -2px rgba(16, 24, 40, 0.04),
-    0 12px 30px rgba(16, 24, 40, 0.07);
+  box-shadow: 0 4px 16px -2px rgba(16, 24, 40, 0.06);
 }
 
 /* Radar pulse animation for active buses (Teal Accent) */
@@ -173,7 +133,7 @@ body {
   }
   70% {
     transform: scale(1.02);
-    box-shadow: 0 0 0 10px rgba(13, 148, 136, 0);
+    box-shadow: 0 0 0 8px rgba(13, 148, 136, 0);
   }
   100% {
     transform: scale(0.95);

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
 import { useAuth } from '../lib/useAuth.js'
 
+const INPUT_CLASS = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-xs text-[#172033] placeholder:text-[#94A3B8] focus:border-[#0D9488] focus:ring-1 focus:ring-[#0D9488] focus:outline-none transition-colors'
+
 function SettingsForm({ school, onSave }) {
   const [name, setName] = useState(school?.name || '')
   const [contactPhone, setContactPhone] = useState(school?.contact_phone || '')
@@ -31,36 +33,41 @@ function SettingsForm({ school, onSave }) {
   }
 
   return (
-    <>
+    <div className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-2xs">
+      <div className="border-b border-[#E2E8F0] pb-3 mb-4">
+        <h2 className="text-sm font-bold text-[#172033]">School Profile &amp; Contact</h2>
+        <p className="text-xs text-[#64748B] mt-0.5">Official school identity displayed on the parent portal and notifications.</p>
+      </div>
+
       {successMsg && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
           ✓ {successMsg}
         </div>
       )}
 
       {errorMsg && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-[#DC2626]">
           ✕ {errorMsg}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5 rounded-2xl bg-white p-6 shadow-xs">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label className="text-sm font-bold text-ink">School Name</label>
+          <label className="text-xs font-bold text-[#172033]">School Name *</label>
           <input
             type="text"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Hilltop International Academy"
-            className="mt-1.5 min-h-12 w-full rounded-xl border border-field px-3.5 text-base text-ink focus:border-amber focus:outline-none"
+            className={`mt-1 ${INPUT_CLASS}`}
           />
         </div>
 
         <div>
-          <label className="text-sm font-bold text-ink">School Office Contact Phone</label>
-          <p className="mt-0.5 text-xs text-muted">
-            This is the phone number that parents tap on their Home screen when they click <b>&ldquo;Call school office&rdquo;</b>.
+          <label className="text-xs font-bold text-[#172033]">Official School Transit Phone *</label>
+          <p className="mt-0.5 text-[11px] text-[#64748B]">
+            This is the phone number parents reach when clicking <strong>"Call School"</strong> on their dashboard.
           </p>
           <input
             type="tel"
@@ -68,22 +75,16 @@ function SettingsForm({ school, onSave }) {
             value={contactPhone}
             onChange={(e) => setContactPhone(e.target.value)}
             placeholder="+251911223344 or 0911223344"
-            className="mt-1.5 min-h-12 w-full rounded-xl border border-field px-3.5 text-base text-ink focus:border-amber focus:outline-none"
+            className={`mt-1 ${INPUT_CLASS}`}
           />
-          <p className="mt-1 text-[11px] text-muted">
-            Format: E.164 international format (e.g. <code>+251911223344</code>) or local <code>09xxxxxxxx</code>.
-          </p>
         </div>
 
         <div>
-          <label className="text-sm font-bold text-ink">School Timezone</label>
-          <p className="mt-0.5 text-xs text-muted">
-            Used to determine the school-local date and schedule morning vs. afternoon trips.
-          </p>
+          <label className="text-xs font-bold text-[#172033]">Operational Timezone</label>
           <select
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
-            className="mt-1.5 min-h-12 w-full rounded-xl border border-field bg-white px-3.5 text-base text-ink focus:border-amber focus:outline-none"
+            className={`mt-1 ${INPUT_CLASS}`}
           >
             <option value="Africa/Addis_Ababa">Africa/Addis_Ababa (East Africa Time, UTC+3)</option>
             <option value="UTC">UTC (Coordinated Universal Time)</option>
@@ -92,20 +93,20 @@ function SettingsForm({ school, onSave }) {
           </select>
         </div>
 
-        <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-5">
-          <div className="text-xs text-muted">
-            School Code: <span className="font-mono font-bold text-ink">{school?.code || '—'}</span>
+        <div className="flex items-center justify-between border-t border-[#E2E8F0] pt-3 mt-1">
+          <div className="text-[11px] text-[#64748B]">
+            School Identifier: <span className="font-mono font-bold text-[#172033]">{school?.code || '—'}</span>
           </div>
           <button
             type="submit"
             disabled={saving}
-            className="rounded-xl bg-amber px-6 py-3 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
+            className="rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] disabled:opacity-50 transition-colors shadow-2xs"
           >
-            {saving ? 'Saving changes…' : 'Save School Settings'}
+            {saving ? 'Saving…' : 'Save School Settings'}
           </button>
         </div>
       </form>
-    </>
+    </div>
   )
 }
 
@@ -117,7 +118,9 @@ function ManagerSecurityForm() {
   const [successMsg, setSuccessMsg] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
 
-  const mustChange = Boolean(user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password)
+  const mustChange = Boolean(
+    user?.app_metadata?.must_change_password || user?.user_metadata?.must_change_password
+  )
 
   async function handlePasswordSubmit(e) {
     e.preventDefault()
@@ -138,78 +141,75 @@ function ManagerSecurityForm() {
     setSaving(false)
 
     if (res.success) {
-      setSuccessMsg('Your password has been successfully updated and secured!')
+      setSuccessMsg('Your administrative password has been updated.')
       setNewPassword('')
       setConfirmPassword('')
     } else {
-      setErrorMsg(res.error || 'Failed to update password. Please try again.')
+      setErrorMsg(res.error || 'Failed to update password.')
     }
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-xs border border-gray-200">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber/20 text-lg">
-          🔐
-        </span>
-        <div>
-          <h2 className="text-base font-bold text-ink">Manager Security &amp; Password</h2>
-          <p className="text-xs text-muted">
-            Logged in as <b>{profile?.full_name || 'Manager'}</b> ({user?.email || 'No email attached'})
-          </p>
-        </div>
+    <div className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-2xs">
+      <div className="border-b border-[#E2E8F0] pb-3 mb-4">
+        <h2 className="text-sm font-bold text-[#172033]">Manager Account Credentials</h2>
+        <p className="text-xs text-[#64748B] mt-0.5">
+          Logged in as <strong>{profile?.full_name || 'Manager'}</strong> ({user?.email || 'No email attached'})
+        </p>
       </div>
 
       {mustChange && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
-          ⚠️ You are currently using a temporary password. Please set your permanent password below.
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs font-semibold text-amber-900">
+          ⚠️ You are currently using a temporary password. Please set a permanent password.
         </div>
       )}
 
       {successMsg && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-800">
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
           ✓ {successMsg}
         </div>
       )}
 
       {errorMsg && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs font-semibold text-red-700">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-[#DC2626]">
           ✕ {errorMsg}
         </div>
       )}
 
-      <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4">
-        <div>
-          <label className="text-xs font-bold text-ink">New Password</label>
-          <input
-            type="password"
-            required
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            className="mt-1 min-h-11 w-full rounded-xl border border-field px-3.5 text-sm text-ink focus:border-amber focus:outline-none"
-          />
+      <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-[#172033]">New Password *</label>
+            <input
+              type="password"
+              required
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              className={`mt-1 ${INPUT_CLASS}`}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-[#172033]">Confirm Password *</label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Repeat new password"
+              className={`mt-1 ${INPUT_CLASS}`}
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-ink">Confirm New Password</label>
-          <input
-            type="password"
-            required
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Re-enter new password"
-            className="mt-1 min-h-11 w-full rounded-xl border border-field px-3.5 text-sm text-ink focus:border-amber focus:outline-none"
-          />
-        </div>
-
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-end pt-2 border-t border-[#E2E8F0] mt-1">
           <button
             type="submit"
             disabled={saving}
-            className="rounded-xl bg-ink px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50 shadow-xs"
+            className="rounded-lg bg-[#1D3557] px-4 py-2 text-xs font-bold text-white hover:bg-[#14243B] disabled:opacity-50 transition-colors shadow-2xs"
           >
-            {saving ? 'Updating Password…' : 'Update My Password'}
+            {saving ? 'Updating…' : 'Update Manager Password'}
           </button>
         </div>
       </form>
@@ -238,58 +238,49 @@ function LocationHistoryCard({ onPurge }) {
   }
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col gap-3">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-lg">
-          🧹
-        </span>
-        <div>
-          <h2 className="text-base font-bold text-ink">Location History Retention &amp; Privacy</h2>
-          <p className="text-xs text-muted">Protect student privacy by clearing past GPS tracking data</p>
-        </div>
+    <section className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-2xs flex flex-col gap-3">
+      <div className="border-b border-[#E2E8F0] pb-3">
+        <h2 className="text-sm font-bold text-[#172033]">Data Retention &amp; GPS Privacy</h2>
+        <p className="text-xs text-[#64748B] mt-0.5">Protect student privacy by clearing historical GPS breadcrumbs from finished runs.</p>
       </div>
 
-      <p className="text-xs leading-relaxed text-ink">
-        To protect child safety and student privacy, location history of finished trips before today should be purged regularly. Trips in progress today are protected and will never be affected.
+      <p className="text-xs leading-relaxed text-[#172033]">
+        To maintain student transit privacy and data protection compliance, GPS coordinates of finished trips can be purged on demand. Ongoing trips today are protected and will never be affected.
       </p>
 
       {lastPurgedMsg && (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
           ✓ {lastPurgedMsg}
         </p>
       )}
 
       {purgeError && (
-        <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-[#DC2626]">
           ✕ {purgeError}
         </p>
       )}
 
       {confirming ? (
-        <div
-          className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4"
-          role="alertdialog"
-          aria-label="Confirm deleting location history"
-        >
-          <p className="text-xs font-bold text-red-900">
-            Purge location history of finished trips before today?
+        <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5">
+          <p className="text-xs font-bold text-[#DC2626]">
+            Permanently delete GPS coordinates from finished trips before today?
           </p>
-          <p className="text-xs text-red-800 leading-relaxed">
-            This cannot be undone. Active trips today are never touched. Aggregated trip summaries are preserved for reporting.
+          <p className="text-[11px] text-red-900 leading-relaxed">
+            This action cannot be undone. Summary logs (trip start/end times and attendance) remain preserved.
           </p>
-          <div className="flex gap-2.5">
+          <div className="flex gap-2">
             <button
               type="button"
               disabled={purging}
               onClick={handlePurgeNow}
-              className="rounded-xl bg-danger px-4 py-2 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
+              className="rounded-lg bg-[#DC2626] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
             >
               {purging ? 'Purging…' : 'Yes, purge now'}
             </button>
             <button
               type="button"
               onClick={() => setConfirming(false)}
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-muted hover:bg-gray-50"
+              className="rounded-lg border border-[#E2E8F0] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#64748B] hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -300,16 +291,12 @@ function LocationHistoryCard({ onPurge }) {
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-900 hover:bg-amber-100 shadow-xs"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors shadow-2xs"
           >
-            Purge Past Location History
+            Purge Historical GPS Records
           </button>
         </div>
       )}
-
-      <p className="text-[11px] leading-relaxed text-muted">
-        Location history older than 3 days is also automatically removed as a safety net. Each deletion action is permanently recorded in the school audit log.
-      </p>
     </section>
   )
 }
@@ -320,19 +307,19 @@ export default function Settings() {
   if (loading) {
     return (
       <div className="flex h-48 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#0D9488] border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <header>
-        <h1 className="text-[28px] font-bold text-ink">School Office &amp; Settings</h1>
-        <p className="text-sm text-muted">
-          Manage your school details, official contact phone number, and your manager account security.
+    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+      <div className="border-b border-[#E2E8F0] pb-4">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#172033]">School Office &amp; Settings</h1>
+        <p className="text-xs text-[#64748B] mt-0.5">
+          Configure administrative phone contacts, manager access credentials, and student privacy policies.
         </p>
-      </header>
+      </div>
 
       <SettingsForm
         key={school?.id || 'loading'}
@@ -343,13 +330,6 @@ export default function Settings() {
       <ManagerSecurityForm />
 
       <LocationHistoryCard onPurge={purgeLocationHistory} />
-
-      <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5 text-xs text-muted">
-        <p className="font-semibold text-ink">🔒 Security &amp; Audit Notice</p>
-        <p className="mt-1 leading-relaxed">
-          All changes to school office details and manager credentials are automatically recorded in the school&apos;s immutable audit log.
-        </p>
-      </section>
     </div>
   )
 }
