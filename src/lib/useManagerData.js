@@ -942,6 +942,53 @@ export function useManagerData() {
     return { success: true, stop: data }
   }
 
+  // Mutation 13b: Delete Stop from Route
+  async function deleteStop(stopId) {
+    if (!stopId) throw new Error('Stop ID is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    const { error: delErr } = await supabase
+      .from('stops')
+      .delete()
+      .eq('id', stopId)
+      .eq('school_id', schoolId)
+
+    if (delErr) throw delErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 13c: Reorder Stops
+  async function reorderStops(routeId, orderedStops) {
+    if (!routeId || !Array.isArray(orderedStops) || !schoolId) return
+    const updates = orderedStops.map((st, idx) =>
+      supabase
+        .from('stops')
+        .update({ sequence_morning: idx + 1 })
+        .eq('id', st.id)
+        .eq('school_id', schoolId)
+    )
+    await Promise.all(updates)
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
+  // Mutation 13d: Delete Bus from Fleet
+  async function deleteBus(busId) {
+    if (!busId) throw new Error('Bus ID is required.')
+    if (!schoolId) throw new Error('School ID is missing.')
+
+    const { error: delErr } = await supabase
+      .from('buses')
+      .delete()
+      .eq('id', busId)
+      .eq('school_id', schoolId)
+
+    if (delErr) throw delErr
+    setReloadTrigger((v) => v + 1)
+    return { success: true }
+  }
+
   // Mutation 14: Provision Driver Account
   async function provisionDriver({ fullName, phone, email, tempPassword }) {
     if (!schoolId) throw new Error('School ID is missing.')
@@ -1065,6 +1112,9 @@ export function useManagerData() {
     assignBusToRouteAndDriver,
     addRoute,
     addStopToRoute,
+    deleteStop,
+    reorderStops,
+    deleteBus,
     provisionDriver,
     refresh: () => setReloadTrigger((v) => v + 1),
   }
