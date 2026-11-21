@@ -81,6 +81,7 @@ export function useManagerData() {
             full_name,
             grade,
             is_active,
+            parent_phone,
             guardians (
               id,
               profile_id,
@@ -109,6 +110,21 @@ export function useManagerData() {
           .order('full_name')
 
         if (studentErr) throw studentErr
+
+        // 2b. Fetch Parent Invites for this school (safe fallback if table pending migration)
+        let inviteRows = []
+        try {
+          const { data: invites, error: inviteErr } = await supabase
+            .from('parent_invites')
+            .select('id, student_id, phone_number, expires_at, used_at, revoked_at, created_at')
+            .eq('school_id', schoolId)
+            .order('created_at', { ascending: false })
+          if (!inviteErr && invites) {
+            inviteRows = invites
+          }
+        } catch {
+          // Table might not exist yet or offline
+        }
 
         // 3. Fetch Buses + Plates + Driver Assignment
         const { data: busRows, error: busErr } = await supabase
@@ -220,25 +236,47 @@ export function useManagerData() {
           setSchool(schoolData)
 
           // Map students
+          const now = new Date()
           const mappedStudents = (studentRows || []).map((s) => {
             const guardian = s.guardians?.[0]
             const morningStop = s.student_stops?.find((st) => st.direction === 'morning')?.stops
             const afternoonStop = s.student_stops?.find((st) => st.direction === 'afternoon')?.stops || morningStop
+
+            const studentInvites = inviteRows.filter((inv) => inv.student_id === s.id)
+            const latestInvite = studentInvites[0] || null
+
+            let inviteStatus = 'none'
+            if (guardian?.profile_id) {
+              inviteStatus = 'linked'
+            } else if (latestInvite) {
+              if (latestInvite.used_at) {
+                inviteStatus = 'linked'
+              } else if (latestInvite.revoked_at) {
+                inviteStatus = 'revoked'
+              } else if (new Date(latestInvite.expires_at) <= now) {
+                inviteStatus = 'expired'
+              } else {
+                inviteStatus = 'pending'
+              }
+            }
 
             return {
               id: s.id,
               fullName: s.full_name,
               grade: s.grade,
               isActive: s.is_active,
+              parentPhone: s.parent_phone || guardian?.profiles?.phone || '',
               guardianId: guardian?.id || null,
               guardianProfileId: guardian?.profile_id || null,
-              parentName: guardian?.profiles?.full_name || 'No parent linked',
-              parentPhone: guardian?.profiles?.phone || '',
+              parentName: guardian?.profiles?.full_name || (guardian?.profile_id ? 'Linked Parent' : (latestInvite ? 'Invite Sent' : 'No parent linked')),
+              inviteStatus,
+              latestInvite,
               morningStop: morningStop ? morningStop.name : null,
               afternoonStop: afternoonStop ? afternoonStop.name : null,
               routeId: morningStop?.route_id || null,
               routeName: morningStop?.routes?.name || 'No route',
               hasStop: Boolean(morningStop || afternoonStop),
+              stopId: morningStop?.id || afternoonStop?.id || null,
             }
           })
           setStudents(mappedStudents)
@@ -324,10 +362,21 @@ export function useManagerData() {
     return { success: true, purgedCount: data }
   }
 
-  // Mutation 3: Add Student
-  async function addStudent({ fullName, grade }) {
+  // Mutation 3: Add Student (with optional parent phone & stop assignment)
+  async function addStudent({ fullName, grade, parentPhone, stopId }) {
     if (!fullName?.trim()) throw new Error('Student name is required.')
     if (!schoolId) throw new Error('Manager must be assigned to a school.')
+
+    let cleanPhone = null
+    if (parentPhone?.trim()) {
+      let digits = parentPhone.trim().replace(/\D/g, '')
+      if (digits.startsWith('09') || digits.startsWith('07')) {
+        digits = '251' + digits.slice(1)
+      } else if ((digits.startsWith('9') || digits.startsWith('7')) && digits.length === 9) {
+        digits = '251' + digits
+      }
+      cleanPhone = digits.startsWith('251') && digits.length === 12 ? `+${digits}` : parentPhone.trim()
+    }
 
     const { data, error: insertErr } = await supabase
       .from('students')
@@ -335,6 +384,7 @@ export function useManagerData() {
         school_id: schoolId,
         full_name: fullName.trim(),
         grade: Number(grade) || null,
+        parent_phone: cleanPhone,
         is_active: true,
       })
       .select()
@@ -342,8 +392,76 @@ export function useManagerData() {
 
     if (insertErr) throw insertErr
 
+    // Automatically assign initial stop if provided
+    if (stopId && data?.id) {
+      try {
+        await supabase.from('student_stops').insert([
+          { school_id: schoolId, student_id: data.id, stop_id: stopId, direction: 'morning' },
+          { school_id: schoolId, student_id: data.id, stop_id: stopId, direction: 'afternoon' },
+        ])
+      } catch (stopErr) {
+        console.warn('Could not assign initial bus stop to student:', stopErr)
+      }
+    }
+
     setReloadTrigger((v) => v + 1)
     return { success: true, student: data }
+  }
+
+  // Mutation 3b: Generate Single-Use Parent Invitation Link
+  async function generateParentInvite({ studentId, phoneNumber }) {
+    if (!studentId) throw new Error('Student ID is required.')
+
+    const session = (await supabase.auth.getSession())?.data?.session
+    const token = session?.access_token
+    if (!token) throw new Error('You must be logged in as a school manager.')
+
+    const res = await fetch('/api/generate-invite', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        student_id: studentId,
+        phone_number: phoneNumber,
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to generate parent invitation link.')
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return data
+  }
+
+  // Mutation 3c: Revoke Parent Invitation
+  async function revokeParentInvite({ studentId, inviteId }) {
+    const session = (await supabase.auth.getSession())?.data?.session
+    const token = session?.access_token
+    if (!token) throw new Error('You must be logged in as a school manager.')
+
+    const res = await fetch('/api/revoke-invite', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        student_id: studentId,
+        invite_id: inviteId,
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to revoke invitation.')
+    }
+
+    setReloadTrigger((v) => v + 1)
+    return data
   }
 
   // Mutation 4: Add Bus & License Plate
@@ -821,6 +939,8 @@ export function useManagerData() {
     deleteStudent,
     unlinkParent,
     assignStudentStop,
+    generateParentInvite,
+    revokeParentInvite,
     linkParentToStudent,
     initializeDefaultRoutesAndBuses,
     assignBusToRouteAndDriver,

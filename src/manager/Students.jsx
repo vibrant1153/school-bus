@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useManagerData } from '../lib/useManagerData.js'
 
-const FIELD = 'min-h-11 rounded-xl border border-field bg-white px-3.5 text-sm focus:border-amber focus:outline-none'
+const FIELD = 'min-h-11 rounded-xl border border-field bg-white px-3.5 text-sm focus:border-amber focus:outline-none transition-all'
 
 export default function Students() {
   const {
@@ -12,7 +12,8 @@ export default function Students() {
     deleteStudent,
     unlinkParent,
     assignStudentStop,
-    linkParentToStudent,
+    generateParentInvite,
+    revokeParentInvite,
     initializeDefaultRoutesAndBuses,
   } = useManagerData()
 
@@ -24,28 +25,28 @@ export default function Students() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newStudentName, setNewStudentName] = useState('')
   const [newStudentGrade, setNewStudentGrade] = useState('3')
+  const [newParentPhone, setNewParentPhone] = useState('')
+  const [newRouteId, setNewRouteId] = useState('')
+  const [newStopId, setNewStopId] = useState('')
   const [adding, setAdding] = useState(false)
   const [modalError, setModalError] = useState(null)
 
-  // Assign Route, Stop & Link Parent modal state
-  const [studentToAssign, setStudentToAssign] = useState(null)
+  // Invitation Modal State
+  const [inviteModalStudent, setInviteModalStudent] = useState(null)
+  const [inviteLinkData, setInviteLinkData] = useState(null)
+  const [invitePhoneNumber, setInvitePhoneNumber] = useState('')
+  const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [inviteError, setInviteError] = useState(null)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [revokingInvite, setRevokingInvite] = useState(false)
+
+  // Assign Stop Modal state
+  const [studentToAssignStop, setStudentToAssignStop] = useState(null)
   const [assignRouteId, setAssignRouteId] = useState('')
   const [assignStopId, setAssignStopId] = useState('')
-  const [parentFullName, setParentFullName] = useState('')
-  const [parentEmail, setParentEmail] = useState('')
-  const [parentPhone, setParentPhone] = useState('')
-  const [parentRelationship, setParentRelationship] = useState('Parent')
-  const [parentTempPassword, setParentTempPassword] = useState('')
-  const [assignError, setAssignError] = useState('')
   const [savingStop, setSavingStop] = useState(false)
   const [stopError, setStopError] = useState('')
   const [stopSuccess, setStopSuccess] = useState('')
-  const [savingParent, setSavingParent] = useState(false)
-  const [parentError, setParentError] = useState('')
-  const [parentSuccess, setParentSuccess] = useState('')
-  const [parentCredentials, setParentCredentials] = useState(null)
-  const [copiedCreds, setCopiedCreds] = useState(false)
-  const [initRoutesLoading, setInitRoutesLoading] = useState(false)
 
   // Delete & Unlink modal state
   const [studentToDelete, setStudentToDelete] = useState(null)
@@ -54,27 +55,121 @@ export default function Students() {
   const [unlinkingParent, setUnlinkingParent] = useState(false)
   const [actionError, setActionError] = useState('')
   const [toastMessage, setToastMessage] = useState(null)
+  const [initRoutesLoading, setInitRoutesLoading] = useState(false)
 
-  function openAssignModal(student) {
-    setStudentToAssign(student)
+  // 1. Open Invite Modal for a student
+  function openInviteModal(student) {
+    setInviteModalStudent(student)
+    setInvitePhoneNumber(student.parentPhone || '')
+    setInviteLinkData(null)
+    setInviteError(null)
+    setCopiedLink(false)
+
+    // If student already has a pending invite and phone is set, auto-generate or prompt
+    if (student.parentPhone) {
+      handleGenerateInvite(student, student.parentPhone)
+    }
+  }
+
+  // Generate / Regenerate invitation link
+  async function handleGenerateInvite(student, phoneToUse) {
+    const targetStudent = student || inviteModalStudent
+    const targetPhone = phoneToUse || invitePhoneNumber || targetStudent?.parentPhone
+
+    if (!targetStudent) return
+    if (!targetPhone?.trim()) {
+      setInviteError('Please enter a parent phone number.')
+      return
+    }
+
+    setGeneratingInvite(true)
+    setInviteError(null)
+
+    try {
+      const res = await generateParentInvite({
+        studentId: targetStudent.id,
+        phoneNumber: targetPhone.trim(),
+      })
+
+      const origin = window.location.origin
+      const inviteUrl = `${origin}/invite/${res.token}`
+
+      setInviteLinkData({
+        url: inviteUrl,
+        token: res.token,
+        phoneNumber: res.phone_number,
+        expiresAt: res.expires_at,
+        studentName: targetStudent.fullName,
+      })
+      setInvitePhoneNumber(res.phone_number)
+      setToastMessage(`Generated single-use invite for ${targetStudent.fullName}!`)
+    } catch (err) {
+      console.error('Failed to generate invite:', err)
+      setInviteError(err.message || 'Failed to generate invitation link.')
+    } finally {
+      setGeneratingInvite(false)
+    }
+  }
+
+  // Revoke invitation
+  async function handleRevokeInvite() {
+    if (!inviteModalStudent) return
+    setRevokingInvite(true)
+    setInviteError(null)
+
+    try {
+      await revokeParentInvite({
+        studentId: inviteModalStudent.id,
+        inviteId: inviteModalStudent.latestInvite?.id,
+      })
+      setInviteLinkData(null)
+      setToastMessage(`Revoked invitation for ${inviteModalStudent.fullName}.`)
+      setInviteModalStudent(null)
+    } catch (err) {
+      console.error('Failed to revoke invite:', err)
+      setInviteError(err.message || 'Failed to revoke invitation.')
+    } finally {
+      setRevokingInvite(false)
+    }
+  }
+
+  // Share helpers
+  function copyInviteLink() {
+    if (!inviteLinkData?.url) return
+    navigator.clipboard.writeText(inviteLinkData.url)
+    setCopiedLink(true)
+    setTimeout(() => setCopiedLink(false), 3000)
+  }
+
+  function shareWhatsApp() {
+    if (!inviteLinkData?.url || !inviteModalStudent) return
+    const msg = `Hello! You are invited to connect to SchoolBus Connect to track ${inviteModalStudent.fullName}'s school bus live.\n\nPlease open this link to create your account and connect to your child:\n${inviteLinkData.url}\n\n(This secure link is single-use and expires in 72 hours.)`
+    const digits = (inviteLinkData.phoneNumber || '').replace(/\D/g, '')
+    const waUrl = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`
+    window.open(waUrl, '_blank')
+  }
+
+  function shareSMS() {
+    if (!inviteLinkData?.url || !inviteModalStudent) return
+    const msg = `SchoolBus Connect: Track ${inviteModalStudent.fullName}'s bus live. Open link to register: ${inviteLinkData.url}`
+    const digits = (inviteLinkData.phoneNumber || '').replace(/\D/g, '')
+    const smsUrl = `sms:${digits}?body=${encodeURIComponent(msg)}`
+    window.location.href = smsUrl
+  }
+
+  // 2. Open Stop Assignment modal
+  function openAssignStopModal(student) {
+    setStudentToAssignStop(student)
     const initialRoute = student.routeId || (routes[0]?.id || '')
     setAssignRouteId(initialRoute)
     setAssignStopId(student.stopId || '')
-    setParentFullName(student.parentName !== 'No parent linked' ? student.parentName : '')
-    setParentEmail('')
-    setParentPhone(student.parentPhone || '')
-    setParentRelationship('Parent')
-    setParentTempPassword('')
-    setAssignError('')
     setStopError('')
     setStopSuccess('')
-    setParentError('')
-    setParentSuccess('')
   }
 
   async function handleSaveStop(e) {
     if (e) e.preventDefault()
-    if (!studentToAssign) return
+    if (!studentToAssignStop) return
     if (!assignStopId) {
       setStopError('Please select a bus stop from the list.')
       return
@@ -84,13 +179,16 @@ export default function Students() {
     setStopSuccess('')
     try {
       await assignStudentStop({
-        studentId: studentToAssign.id,
+        studentId: studentToAssignStop.id,
         stopId: assignStopId,
       })
       setStopSuccess('✓ Bus stop updated successfully!')
-      setToastMessage(`Updated bus stop for ${studentToAssign.fullName}!`)
-      setStudentToAssign((prev) => prev ? { ...prev, hasStop: true, stopId: assignStopId } : null)
-      setTimeout(() => setStopSuccess(''), 5000)
+      setToastMessage(`Updated bus stop for ${studentToAssignStop.fullName}!`)
+      setStudentToAssignStop((prev) => prev ? { ...prev, hasStop: true, stopId: assignStopId } : null)
+      setTimeout(() => {
+        setStopSuccess('')
+        setStudentToAssignStop(null)
+      }, 1200)
     } catch (err) {
       console.error('Failed to assign stop:', err)
       setStopError(err.message || 'Failed to assign stop.')
@@ -99,61 +197,40 @@ export default function Students() {
     }
   }
 
-  async function handleSaveParent(e) {
-    if (e) e.preventDefault()
-    if (!studentToAssign) return
-    if (!parentEmail.trim() && !parentPhone.trim()) {
-      setParentError('Please enter a parent email or contact phone number.')
-      return
-    }
-    setSavingParent(true)
-    setParentError('')
-    setParentSuccess('')
+  async function handleAddStudent(e) {
+    e.preventDefault()
+    setModalError(null)
+    setAdding(true)
+
     try {
-      const creds = await linkParentToStudent({
-        studentId: studentToAssign.id,
-        fullName: parentFullName.trim() || 'Parent Guardian',
-        email: parentEmail.trim().toLowerCase() || undefined,
-        phone: parentPhone.trim() || undefined,
-        relationship: parentRelationship,
-        tempPassword: parentTempPassword.trim() || undefined,
+      const res = await addStudent({
+        fullName: newStudentName,
+        grade: newStudentGrade,
+        parentPhone: newParentPhone || undefined,
+        stopId: newStopId || undefined,
       })
 
-      if (creds?.temp_password) {
-        setParentCredentials({
-          fullName: creds.full_name,
-          email: creds.email,
-          password: creds.temp_password,
-          studentName: studentToAssign.fullName,
+      const createdStudent = res.student
+      setShowAddModal(false)
+      setNewStudentName('')
+      setNewParentPhone('')
+      setNewRouteId('')
+      setNewStopId('')
+
+      setToastMessage(`Added student "${createdStudent.full_name}" successfully!`)
+
+      // If parent phone was provided, prompt immediately with the invite link modal
+      if (newParentPhone.trim() && createdStudent?.id) {
+        openInviteModal({
+          id: createdStudent.id,
+          fullName: createdStudent.full_name,
+          parentPhone: newParentPhone.trim(),
         })
       }
-      setParentSuccess('✓ Parent account linked successfully!')
-      setToastMessage(`Linked parent to ${studentToAssign.fullName}!`)
-      setStudentToAssign((prev) => prev ? {
-        ...prev,
-        parentName: parentFullName.trim() || 'Parent Guardian',
-        parentPhone: parentPhone.trim() || prev.parentPhone,
-        guardianId: prev.guardianId || 'linked',
-      } : null)
-      setTimeout(() => setParentSuccess(''), 5000)
     } catch (err) {
-      console.error('Failed to link parent:', err)
-      setParentError(err.message || 'Failed to link parent.')
+      setModalError(err.message || 'Failed to add student.')
     } finally {
-      setSavingParent(false)
-    }
-  }
-
-  async function handleInitializeRoutes() {
-    setInitRoutesLoading(true)
-    try {
-      await initializeDefaultRoutesAndBuses()
-      setToastMessage('Standard routes and stops created successfully! You can now assign stops.')
-      setTimeout(() => setToastMessage(null), 5000)
-    } catch (err) {
-      alert(err.message || 'Failed to initialize routes.')
-    } finally {
-      setInitRoutesLoading(false)
+      setAdding(false)
     }
   }
 
@@ -180,7 +257,7 @@ export default function Students() {
     setActionError('')
     try {
       await unlinkParent(parentToUnlink.guardianId)
-      setToastMessage(`Unlinked parent "${parentToUnlink.parentName}" from ${parentToUnlink.fullName}.`)
+      setToastMessage(`Unlinked parent from ${parentToUnlink.fullName}.`)
       setParentToUnlink(null)
       setTimeout(() => setToastMessage(null), 5000)
     } catch (err) {
@@ -191,81 +268,83 @@ export default function Students() {
     }
   }
 
+  async function handleInitializeRoutes() {
+    setInitRoutesLoading(true)
+    try {
+      await initializeDefaultRoutesAndBuses()
+      setToastMessage('Standard routes and stops created successfully! You can now assign stops.')
+      setTimeout(() => setToastMessage(null), 5000)
+    } catch (err) {
+      alert(err.message || 'Failed to initialize routes.')
+    } finally {
+      setInitRoutesLoading(false)
+    }
+  }
+
+  // Filter students
   const shown = students.filter((s) => {
-    const text = `${s.fullName} ${s.parentName}`.toLowerCase()
+    const text = `${s.fullName} ${s.parentName} ${s.parentPhone || ''}`.toLowerCase()
     const matchesQuery = text.includes(query.trim().toLowerCase())
     const matchesRoute = routeId === 'all' || s.routeId === routeId
     const matchesStatus =
       status === 'all' ||
-      (status === 'nostop' ? !s.hasStop : s.hasStop)
+      (status === 'nostop' ? !s.hasStop : false) ||
+      (status === 'ok' ? s.hasStop : false) ||
+      (status === 'unlinked' ? s.inviteStatus !== 'linked' : false) ||
+      (status === 'linked' ? s.inviteStatus === 'linked' : false)
     return matchesQuery && matchesRoute && matchesStatus
   })
-
-  async function handleAddStudent(e) {
-    e.preventDefault()
-    setModalError(null)
-    setAdding(true)
-
-    try {
-      await addStudent({
-        fullName: newStudentName,
-        grade: newStudentGrade,
-      })
-      setNewStudentName('')
-      setShowAddModal(false)
-    } catch (err) {
-      setModalError(err.message || 'Failed to add student.')
-    } finally {
-      setAdding(false)
-    }
-  }
 
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber border-t-transparent" />
+        <div className="h-9 w-9 animate-spin rounded-full border-4 border-amber border-t-transparent" />
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Toast Alert */}
       {toastMessage && (
-        <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50 p-3 text-xs font-semibold text-green-800">
-          <span>✓ {toastMessage}</span>
-          <button onClick={() => setToastMessage(null)} className="text-green-800 hover:opacity-75">✕</button>
+        <div className="card-3d flex items-center justify-between rounded-2xl border border-emerald-300 bg-emerald-50/95 p-3.5 text-xs font-bold text-emerald-950 shadow-sm animate-fadeIn">
+          <span className="flex items-center gap-2">
+            <span className="text-emerald-600">✓</span>
+            <span>{toastMessage}</span>
+          </span>
+          <button onClick={() => setToastMessage(null)} className="text-emerald-800 hover:opacity-75 font-black text-sm">✕</button>
         </div>
       )}
 
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      {/* Top Header */}
+      <header className="card-3d flex flex-wrap items-center justify-between gap-4 rounded-3xl p-6 shadow-sm">
         <div>
-          <h1 className="text-[28px] font-bold text-ink">Students &amp; Parents</h1>
-          <p className="text-sm text-muted">
-            {students.length} students enrolled in school transportation roster.
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Students &amp; Parents</h1>
+          <p className="mt-1 text-xs sm:text-sm font-medium text-slate-500">
+            {students.length} students enrolled · Invitation-based parent linking system
           </p>
         </div>
-        <div className="flex gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="rounded-xl bg-amber px-4 py-2.5 text-sm font-bold text-ink hover:opacity-95 shadow-xs"
-          >
-            + Add Student
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowAddModal(true)}
+          className="btn-3d-amber flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-black text-slate-950 shadow-sm"
+        >
+          <span className="text-base leading-none">＋</span>
+          <span>Add Student</span>
+        </button>
       </header>
 
       {/* Route Setup Alert Banner when school has 0 routes */}
       {routes.length === 0 && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-200 text-lg shrink-0">
+        <div className="card-3d rounded-3xl border border-amber-300 bg-amber-50/90 p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-200 text-xl shrink-0 shadow-2xs">
               📍
             </span>
             <div>
-              <h3 className="text-sm font-bold text-amber-950">No Bus Routes Configured</h3>
-              <p className="text-xs text-amber-900 mt-0.5">
-                Students show <strong>&quot;Needs a stop&quot;</strong> because this school has no routes or stops yet. Initialize standard routes to assign bus stops.
+              <h3 className="text-sm font-black text-amber-950">No Bus Routes Configured</h3>
+              <p className="text-xs text-amber-900 mt-0.5 font-medium leading-relaxed">
+                Students will show <strong>&quot;Needs a stop&quot;</strong> until routes are set up. Click below to initialize standard school bus routes and stops.
               </p>
             </div>
           </div>
@@ -273,9 +352,9 @@ export default function Students() {
             type="button"
             disabled={initRoutesLoading}
             onClick={handleInitializeRoutes}
-            className="rounded-xl bg-ink px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50 transition-all"
+            className="btn-3d-subtle rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-800 disabled:opacity-50"
           >
-            {initRoutesLoading ? 'Creating Routes…' : '⚡ Initialize Standard Routes & Stops (1-Click)'}
+            {initRoutesLoading ? 'Creating Routes…' : '⚡ Initialize Standard Routes (1-Click)'}
           </button>
         </div>
       )}
@@ -286,15 +365,15 @@ export default function Students() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search student or parent…"
+          placeholder="Search student, parent, or phone…"
           aria-label="Search student or parent"
-          className={FIELD + ' min-w-56 flex-[2]'}
+          className={FIELD + ' min-w-56 flex-[2] shadow-2xs'}
         />
         <select
           value={routeId}
           onChange={(e) => setRouteId(e.target.value)}
           aria-label="Filter by route"
-          className={FIELD + ' flex-1'}
+          className={FIELD + ' flex-1 shadow-2xs'}
         >
           <option value="all">All routes</option>
           {routes.map((r) => (
@@ -307,11 +386,13 @@ export default function Students() {
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           aria-label="Filter by status"
-          className={FIELD + ' flex-1'}
+          className={FIELD + ' flex-1 shadow-2xs'}
         >
           <option value="all">All statuses</option>
-          <option value="ok">Has stop assigned</option>
-          <option value="nostop">Needs a stop</option>
+          <option value="ok">Has bus stop</option>
+          <option value="nostop">Needs bus stop</option>
+          <option value="linked">Parent Linked</option>
+          <option value="unlinked">Parent Not Linked</option>
         </select>
         {(query || routeId !== 'all' || status !== 'all') && (
           <button
@@ -321,90 +402,159 @@ export default function Students() {
               setRouteId('all')
               setStatus('all')
             }}
-            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-muted hover:bg-gray-50 hover:text-ink transition-colors"
+            className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-2xs"
           >
             ✕ Reset
           </button>
         )}
       </div>
 
-      {/* Students Table */}
-      <section className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
-        <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="border-b border-gray-200 text-xs font-semibold text-muted uppercase tracking-wider">
+      {/* Students Table Section */}
+      <section className="card-3d overflow-x-auto rounded-3xl p-5 shadow-sm">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="border-b border-slate-100 text-[11px] font-black text-slate-400 uppercase tracking-wider">
             <tr>
               <th scope="col" className="pb-3.5">Student</th>
               <th scope="col" className="pb-3.5">Grade</th>
-              <th scope="col" className="pb-3.5">Route</th>
-              <th scope="col" className="pb-3.5">Assigned Stop</th>
-              <th scope="col" className="pb-3.5">Parent / Guardian</th>
-              <th scope="col" className="pb-3.5">Status</th>
+              <th scope="col" className="pb-3.5">Bus Route &amp; Stop</th>
+              <th scope="col" className="pb-3.5">Parent Status</th>
               <th scope="col" className="pb-3.5 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {shown.map((s) => (
-              <tr
-                key={s.id}
-                className={'hover:bg-gray-50/75 ' + (!s.hasStop ? 'bg-amber-50/40' : '')}
-              >
-                <td className="py-3.5 font-bold text-ink">{s.fullName}</td>
-                <td className="py-3.5 text-muted">{s.grade ?? '—'}</td>
-                <td className="py-3.5 text-ink">{s.routeName}</td>
-                <td className={'py-3.5 ' + (!s.hasStop ? 'font-bold text-red-700' : 'text-muted')}>
-                  {s.morningStop || s.afternoonStop || 'No stop assigned'}
-                </td>
-                <td className="py-3.5 text-ink">
-                  <div>{s.parentName}</div>
-                  {s.parentPhone && (
-                    <div className="font-mono text-xs text-muted">{s.parentPhone}</div>
-                  )}
-                </td>
-                <td className="py-3.5">
-                  <span
-                    className={
-                      'inline-block rounded-md px-2 py-0.5 text-xs font-bold ' +
-                      (s.hasStop
-                        ? 'bg-emerald-50 text-emerald-800'
-                        : 'bg-red-50 text-red-700')
-                    }
-                  >
-                    {s.hasStop ? 'OK' : 'Needs a stop'}
-                  </span>
-                </td>
-                <td className="py-3.5 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openAssignModal(s)}
-                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-950 hover:bg-amber-100 hover:border-amber-400 active:scale-95 transition-all shadow-2xs"
-                      title={`Assign route, stop or link parent for ${s.fullName}`}
-                    >
-                      Manage
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setStudentToDelete(s); setActionError('') }}
-                      className="flex h-7 w-7 items-center justify-center rounded-xl border border-gray-200 bg-white text-xs text-red-500 hover:bg-red-50 hover:border-red-300 active:scale-95 transition-all"
-                      title={`Delete ${s.fullName} from roster`}
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+          <tbody className="divide-y divide-slate-100/80">
+            {shown.map((s) => {
+              const isLinked = s.inviteStatus === 'linked'
+              const isPending = s.inviteStatus === 'pending'
+              const isExpired = s.inviteStatus === 'expired'
+
+              return (
+                <tr
+                  key={s.id}
+                  className="hover:bg-slate-50/70 transition-colors"
+                >
+                  {/* Student Name */}
+                  <td className="py-3.5">
+                    <div className="font-black text-slate-900">{s.fullName}</div>
+                    <div className="text-[11px] font-semibold text-slate-400">
+                      ID: {s.id.slice(0, 8)}…
+                    </div>
+                  </td>
+
+                  {/* Grade */}
+                  <td className="py-3.5 text-xs font-bold text-slate-600">
+                    {s.grade === 0 ? 'Kindergarten' : (s.grade ? `Grade ${s.grade}` : '—')}
+                  </td>
+
+                  {/* Route & Stop */}
+                  <td className="py-3.5">
+                    <div className="text-xs font-bold text-slate-800">
+                      {s.routeName || 'No Route'}
+                    </div>
+                    <div className={'text-xs font-medium ' + (!s.hasStop ? 'text-amber-700 font-bold' : 'text-slate-500')}>
+                      📍 {s.morningStop || s.afternoonStop || 'No stop assigned'}
+                    </div>
+                  </td>
+
+                  {/* Parent & Invite Status */}
+                  <td className="py-3.5">
+                    <div className="flex flex-col gap-1 items-start">
+                      {isLinked ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-black text-emerald-800 border border-emerald-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          ✓ Linked: {s.parentName}
+                        </span>
+                      ) : isPending ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-black text-amber-900 border border-amber-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          ⏳ Invite Pending
+                        </span>
+                      ) : isExpired ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-black text-rose-800 border border-rose-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                          ⚠️ Invite Expired
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-600 border border-slate-200">
+                          Not Invited
+                        </span>
+                      )}
+
+                      {s.parentPhone && (
+                        <span className="font-mono text-[11px] text-slate-500">
+                          📞 {s.parentPhone}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Actions */}
+                  <td className="py-3.5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Invite Parent Button */}
+                      {!isLinked && (
+                        <button
+                          type="button"
+                          onClick={() => openInviteModal(s)}
+                          className={
+                            'rounded-xl px-3 py-1.5 text-xs font-black transition-all shadow-2xs ' +
+                            (isPending
+                              ? 'btn-3d-amber text-slate-950'
+                              : 'btn-3d-subtle text-slate-800')
+                          }
+                          title={`Generate parent invitation link for ${s.fullName}`}
+                        >
+                          {isPending ? '🔗 Share Link' : '✉️ Invite Parent'}
+                        </button>
+                      )}
+
+                      {/* Manage Stop Button */}
+                      <button
+                        type="button"
+                        onClick={() => openAssignStopModal(s)}
+                        className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all shadow-2xs"
+                        title="Assign bus route & stop"
+                      >
+                        🚌 Stop
+                      </button>
+
+                      {/* If linked, allow unlink */}
+                      {isLinked && s.guardianId && (
+                        <button
+                          type="button"
+                          onClick={() => { setParentToUnlink(s); setActionError('') }}
+                          className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-50 active:scale-95 transition-all shadow-2xs"
+                          title="Unlink parent from this student"
+                        >
+                          Unlink
+                        </button>
+                      )}
+
+                      {/* Delete Student */}
+                      <button
+                        type="button"
+                        onClick={() => { setStudentToDelete(s); setActionError('') }}
+                        className="flex h-7 w-7 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs text-red-500 hover:bg-red-50 hover:border-red-300 active:scale-95 transition-all shadow-2xs"
+                        title={`Delete ${s.fullName} from roster`}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
 
         {shown.length === 0 && (
-          <div className="py-8 text-center flex flex-col items-center gap-2">
-            <p className="text-sm font-semibold text-ink">No students match your filter.</p>
+          <div className="py-12 text-center flex flex-col items-center gap-2">
+            <span className="text-3xl">👥</span>
+            <p className="text-sm font-bold text-slate-700">No students match your filter.</p>
             {(query || routeId !== 'all' || status !== 'all') && (
               <button
                 type="button"
                 onClick={() => { setQuery(''); setRouteId('all'); setStatus('all') }}
-                className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-1.5 text-xs font-bold text-ink hover:bg-gray-100"
+                className="btn-3d-subtle mt-1 rounded-xl px-4 py-2 text-xs font-bold text-slate-800"
               >
                 Clear all filters
               </button>
@@ -412,51 +562,54 @@ export default function Students() {
           </div>
         )}
 
-        <div className="border-t border-gray-100 pt-3 text-xs text-muted">
-          Showing {shown.length} of {students.length} students. Protected under single-school tenant isolation.
+        <div className="border-t border-slate-100 pt-3.5 text-xs font-medium text-slate-500">
+          Showing {shown.length} of {students.length} students enrolled in school transportation.
         </div>
       </section>
 
       {/* Add Student Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-ink">Add New Student</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-white/90">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Add New Student</h3>
+                <p className="text-xs text-slate-500 font-medium">Register a student to the transportation roster</p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
 
             {modalError && (
-              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+              <div className="mt-3 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
                 {modalError}
               </div>
             )}
 
             <form onSubmit={handleAddStudent} className="mt-4 flex flex-col gap-4">
               <div>
-                <label className="text-xs font-semibold text-ink">Student Full Name</label>
+                <label className="text-xs font-extrabold text-slate-800">Student Full Name *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Yonas Bekele"
                   value={newStudentName}
                   onChange={(e) => setNewStudentName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field p-2.5 text-sm text-ink"
+                  className="mt-1 w-full rounded-2xl border border-field p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-ink">Grade Level</label>
+                <label className="text-xs font-extrabold text-slate-800">Grade Level</label>
                 <select
                   value={newStudentGrade}
                   onChange={(e) => setNewStudentGrade(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-field bg-white p-2.5 text-sm text-ink"
+                  className="mt-1 w-full rounded-2xl border border-field bg-white p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
                 >
                   {[...Array(13).keys()].map((g) => (
                     <option key={g} value={g}>
@@ -466,20 +619,317 @@ export default function Students() {
                 </select>
               </div>
 
+              <div>
+                <label className="text-xs font-extrabold text-slate-800">Parent Contact Phone Number</label>
+                <input
+                  type="tel"
+                  placeholder="e.g. +251911223344 or 0911223344"
+                  value={newParentPhone}
+                  onChange={(e) => setNewParentPhone(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-field p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
+                />
+                <p className="mt-1 text-[11px] text-slate-500 font-medium">
+                  Used to generate a secure invitation link so the parent can register their own account.
+                </p>
+              </div>
+
+              {/* Optional Route & Stop */}
+              {routes.length > 0 && (
+                <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-3.5 flex flex-col gap-3">
+                  <span className="text-xs font-extrabold text-slate-800">🚌 Assigned Bus Route &amp; Stop (Optional)</span>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <select
+                      value={newRouteId}
+                      onChange={(e) => {
+                        setNewRouteId(e.target.value)
+                        setNewStopId('')
+                      }}
+                      className="w-full rounded-xl border border-field bg-white p-2 text-xs font-medium text-slate-800"
+                    >
+                      <option value="">Select Route…</option>
+                      {routes.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={newStopId}
+                      onChange={(e) => setNewStopId(e.target.value)}
+                      disabled={!newRouteId}
+                      className="w-full rounded-xl border border-field bg-white p-2 text-xs font-medium text-slate-800 disabled:opacity-50"
+                    >
+                      <option value="">Select Stop…</option>
+                      {(routes.find((r) => r.id === newRouteId)?.stops || []).map((st) => (
+                        <option key={st.id} value={st.id}>{st.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-amber-50/80 border border-amber-200/80 p-3 text-[11px] font-semibold text-amber-950">
+                💡 <strong>No passwords needed:</strong> School managers no longer need to invent parent accounts or passwords. After adding, you can share a 1-click invitation link directly via WhatsApp or SMS.
+              </div>
+
               <div className="mt-2 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-muted hover:bg-gray-50"
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={adding}
-                  className="rounded-xl bg-amber px-5 py-2.5 text-sm font-bold text-ink hover:opacity-95 disabled:opacity-50"
+                  className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
                 >
-                  {adding ? 'Saving…' : 'Add Student'}
+                  {adding ? 'Saving Student…' : 'Add Student & Continue →'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Parent Invitation Link Modal */}
+      {inviteModalStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-white/90">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-lg shadow-2xs">
+                  ✉️
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Parent Invitation Link</h3>
+                  <p className="text-xs text-slate-500 font-semibold">{inviteModalStudent.fullName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInviteModalStudent(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {inviteError && (
+              <div className="mt-3.5 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
+                ✕ {inviteError}
+              </div>
+            )}
+
+            {/* If no link generated yet, ask/confirm phone and button */}
+            {!inviteLinkData ? (
+              <div className="mt-4 flex flex-col gap-4">
+                <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                  Generate a single-use, cryptographically secure invitation link. The parent creates their own password and is automatically connected to <strong>{inviteModalStudent.fullName}</strong>.
+                </p>
+
+                <div>
+                  <label className="text-xs font-extrabold text-slate-800">Parent Phone Number</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="e.g. +251911223344"
+                    value={invitePhoneNumber}
+                    onChange={(e) => setInvitePhoneNumber(e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-field p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    The parent must register using this verified phone number.
+                  </p>
+                </div>
+
+                <div className="mt-2 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setInviteModalStudent(null)}
+                    className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={generatingInvite || !invitePhoneNumber.trim()}
+                    onClick={() => handleGenerateInvite(inviteModalStudent, invitePhoneNumber)}
+                    className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
+                  >
+                    {generatingInvite ? 'Generating Link…' : 'Generate Invitation Link ⚡'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Invitation Link is ready */
+              <div className="mt-4 flex flex-col gap-4">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3.5 flex flex-col gap-1.5">
+                  <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                    <span>✓</span>
+                    <span>Invitation Ready! (Single-use, 72h validity)</span>
+                  </span>
+                  <p className="text-[11px] text-emerald-900 font-medium">
+                    Associated Phone: <strong className="font-mono">{inviteLinkData.phoneNumber}</strong>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-extrabold text-slate-800">Secure Invitation URL</label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={inviteLinkData.url}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-700 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyInviteLink}
+                      className="shrink-0 rounded-2xl btn-3d-subtle px-3.5 py-2.5 text-xs font-black text-slate-900"
+                    >
+                      {copiedLink ? '✓ Copied!' : '📋 Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Instant Share Actions */}
+                <div className="flex flex-col gap-2 pt-1">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Share directly with parent:
+                  </span>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={shareWhatsApp}
+                      className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-xs"
+                    >
+                      <span>💬</span>
+                      <span>WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={shareSMS}
+                      className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 active:scale-95 transition-all shadow-xs"
+                    >
+                      <span>📱</span>
+                      <span>Send SMS</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Revoke / Regenerate */}
+                <div className="mt-2 border-t border-slate-100 pt-3 flex items-center justify-between">
+                  <button
+                    type="button"
+                    disabled={revokingInvite}
+                    onClick={handleRevokeInvite}
+                    className="text-xs font-bold text-red-600 hover:text-red-700 disabled:opacity-50"
+                  >
+                    {revokingInvite ? 'Revoking…' : '🚫 Revoke this invitation'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteModalStudent(null)}
+                    className="btn-3d-subtle rounded-xl px-4 py-2 text-xs font-black text-slate-800"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Assign Stop Modal */}
+      {studentToAssignStop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-white/90">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-lg shadow-2xs">
+                  🚌
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Assign Bus Route &amp; Stop</h3>
+                  <p className="text-xs text-slate-500 font-semibold">{studentToAssignStop.fullName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStudentToAssignStop(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {stopError && (
+              <div className="mt-3.5 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
+                ✕ {stopError}
+              </div>
+            )}
+
+            {stopSuccess && (
+              <div className="mt-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-xs font-bold text-emerald-800">
+                {stopSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveStop} className="mt-4 flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-extrabold text-slate-800">Bus Route</label>
+                <select
+                  value={assignRouteId}
+                  onChange={(e) => {
+                    setAssignRouteId(e.target.value)
+                    setAssignStopId('')
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-field bg-white p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
+                >
+                  <option value="">Choose a route…</option>
+                  {routes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} ({r.code || 'Route'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold text-slate-800">Assigned Bus Stop</label>
+                <select
+                  value={assignStopId}
+                  onChange={(e) => setAssignStopId(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-field bg-white p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
+                >
+                  <option value="">Choose pickup/drop-off stop…</option>
+                  {(routes.find((r) => r.id === assignRouteId)?.stops || []).map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name} {st.is_school ? '(School Campus)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500 font-medium">
+                  Used for morning pickup and afternoon drop-off location tracking.
+                </p>
+              </div>
+
+              <div className="mt-3 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStudentToAssignStop(null)}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingStop || !assignStopId}
+                  className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
+                >
+                  {savingStop ? 'Saving…' : 'Save Stop Assignment'}
                 </button>
               </div>
             </form>
@@ -489,39 +939,39 @@ export default function Students() {
 
       {/* Delete Student Confirmation Modal */}
       {studentToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-red-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-ink">Delete Student</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-red-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-black text-slate-900">Delete Student</h3>
               <button
                 type="button"
                 onClick={() => { setStudentToDelete(null); setActionError('') }}
-                className="text-gray-400 hover:text-gray-600"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
 
-            <p className="mt-3 text-sm text-gray-700">
-              Are you sure you want to permanently delete <strong className="text-ink">{studentToDelete.fullName}</strong> (Grade {studentToDelete.grade ?? '—'}) from your school roster?
+            <p className="mt-3.5 text-xs text-slate-700 leading-relaxed font-medium">
+              Are you sure you want to permanently delete <strong className="text-slate-900 font-bold">{studentToDelete.fullName}</strong> from your school roster?
             </p>
 
-            <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-800">
-              ⚠️ <strong>Roster Deletion:</strong> This removes the student, associated stop assignments, attendance/absence records, and parent links.
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50/80 p-3 text-xs font-bold text-red-800">
+              ⚠️ This will remove the student, assigned bus stops, attendance records, and any parent invitation or connection.
             </div>
 
             {actionError && (
-              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-                {actionError}
+              <div className="mt-3 rounded-2xl bg-red-50 p-2.5 text-xs font-bold text-red-700">
+                ✕ {actionError}
               </div>
             )}
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => { setStudentToDelete(null); setActionError('') }}
                 disabled={deletingStudent}
-                className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50"
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -529,7 +979,7 @@ export default function Students() {
                 type="button"
                 onClick={handleDeleteStudent}
                 disabled={deletingStudent}
-                className="rounded-xl bg-danger px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+                className="rounded-2xl bg-red-600 px-5 py-2.5 text-xs font-black text-white hover:bg-red-700 disabled:opacity-50 active:scale-95 transition-all shadow-xs"
               >
                 {deletingStudent ? 'Deleting…' : 'Yes, Delete Student'}
               </button>
@@ -540,39 +990,39 @@ export default function Students() {
 
       {/* Unlink Parent Confirmation Modal */}
       {parentToUnlink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-ink">Unlink Parent</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
+          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-white/90">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-black text-slate-900">Unlink Parent</h3>
               <button
                 type="button"
                 onClick={() => { setParentToUnlink(null); setActionError('') }}
-                className="text-gray-400 hover:text-gray-600"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
 
-            <p className="mt-3 text-sm text-gray-700">
-              Unlink parent <strong className="text-ink">{parentToUnlink.parentName}</strong> from student <strong className="text-ink">{parentToUnlink.fullName}</strong>?
+            <p className="mt-3.5 text-xs text-slate-700 leading-relaxed font-medium">
+              Disconnect parent <strong className="text-slate-900 font-bold">{parentToUnlink.parentName}</strong> from student <strong className="text-slate-900 font-bold">{parentToUnlink.fullName}</strong>?
             </p>
 
-            <p className="mt-2 text-xs text-muted">
-              The parent user account will remain active, but they will no longer receive live bus alerts or view trip progress for this student.
+            <p className="mt-2 text-[11px] text-slate-500 font-medium">
+              The parent user account will remain active, but they will no longer see this student on their dashboard or receive trip tracking updates.
             </p>
 
             {actionError && (
-              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-                {actionError}
+              <div className="mt-3 rounded-2xl bg-red-50 p-2.5 text-xs font-bold text-red-700">
+                ✕ {actionError}
               </div>
             )}
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => { setParentToUnlink(null); setActionError('') }}
                 disabled={unlinkingParent}
-                className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-muted hover:bg-gray-50"
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -580,332 +1030,9 @@ export default function Students() {
                 type="button"
                 onClick={handleUnlinkParent}
                 disabled={unlinkingParent}
-                className="rounded-xl bg-amber px-4 py-2.5 text-xs font-bold text-ink shadow-sm hover:opacity-95 disabled:opacity-50"
+                className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
               >
                 {unlinkingParent ? 'Unlinking…' : 'Yes, Unlink Parent'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Route, Stop & Link Parent Modal */}
-      {studentToAssign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-lg">
-                  ✏️
-                </span>
-                <div>
-                  <h3 className="text-lg font-bold text-ink">Assign Route &amp; Link Parent</h3>
-                  <p className="text-xs text-muted font-medium">
-                    {studentToAssign.fullName} • Grade {studentToAssign.grade ?? '—'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setStudentToAssign(null); setAssignError('') }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            {assignError && (
-              <div className="mt-4 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
-                {assignError}
-              </div>
-            )}
-
-            <div className="mt-5 flex flex-col gap-5">
-              {/* Section 1: Route & Bus Stop Assignment */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
-                    <span>🚌</span>
-                    <span>1. Bus Route &amp; Stop</span>
-                  </span>
-                  <span className="text-[11px] font-semibold text-muted">
-                    {studentToAssign.hasStop ? '✓ Currently Assigned' : '⚠️ Needs Stop'}
-                  </span>
-                </div>
-
-                {routes.length === 0 ? (
-                  <div className="rounded-lg bg-amber-100/70 p-3 text-xs text-amber-950 flex flex-col gap-2">
-                    <p>
-                      No bus routes exist for your school yet. Create routes and stops first to assign this student to a bus.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={initRoutesLoading}
-                      onClick={handleInitializeRoutes}
-                      className="self-start rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      {initRoutesLoading ? 'Creating Routes…' : '⚡ Initialize Standard Routes & Stops (1-Click)'}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <label className="text-xs font-semibold text-ink">Select Bus Route</label>
-                        <select
-                          value={assignRouteId}
-                          onChange={(e) => {
-                            setAssignRouteId(e.target.value)
-                            setAssignStopId('')
-                          }}
-                          className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
-                        >
-                          <option value="">Choose a route…</option>
-                          {routes.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name} ({r.code || 'Route'})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-semibold text-ink">Assigned Bus Stop</label>
-                        <select
-                          value={assignStopId}
-                          onChange={(e) => setAssignStopId(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs font-medium text-ink"
-                        >
-                          <option value="">Choose pickup/drop-off stop…</option>
-                          {(routes.find((r) => r.id === assignRouteId)?.stops || []).map((st) => (
-                            <option key={st.id} value={st.id}>
-                              {st.name} {st.is_school ? '(School)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-1 text-[10px] text-muted">
-                          Used for both morning pickup &amp; afternoon drop-off.
-                        </p>
-                      </div>
-                    </div>
-
-                    {stopError && (
-                      <div className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-                        ✕ {stopError}
-                      </div>
-                    )}
-
-                    {stopSuccess && (
-                      <div className="rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
-                        {stopSuccess}
-                      </div>
-                    )}
-
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="button"
-                        disabled={savingStop || !assignStopId}
-                        onClick={handleSaveStop}
-                        className="rounded-lg bg-ink px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        {savingStop ? 'Saving Stop…' : 'Save Stop Assignment'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Section 2: Parent / Guardian Account */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
-                    <span>👨‍👩‍👧</span>
-                    <span>2. Parent / Guardian Account</span>
-                  </span>
-                  {studentToAssign.guardianId && (
-                    <span className="text-[11px] font-semibold text-emerald-700">
-                      ✓ Parent linked
-                    </span>
-                  )}
-                </div>
-
-                {studentToAssign.guardianId && (
-                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-900 font-medium">
-                    Currently linked to: <strong>{studentToAssign.parentName}</strong> {studentToAssign.parentPhone ? `(${studentToAssign.parentPhone})` : ''}
-                  </div>
-                )}
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold text-ink">Parent Full Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Sabir Ahmed"
-                      value={parentFullName}
-                      onChange={(e) => setParentFullName(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-field p-2 text-xs text-ink"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-ink">Relationship</label>
-                    <select
-                      value={parentRelationship}
-                      onChange={(e) => setParentRelationship(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-field bg-white p-2 text-xs text-ink"
-                    >
-                      <option value="Parent">Parent</option>
-                      <option value="Mother">Mother</option>
-                      <option value="Father">Father</option>
-                      <option value="Guardian">Guardian</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold text-ink">Parent Login Email</label>
-                    <input
-                      type="email"
-                      placeholder="e.g. parent.halid@gmail.com"
-                      value={parentEmail}
-                      onChange={(e) => setParentEmail(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-field p-2 text-xs text-ink"
-                    />
-                    <p className="mt-1 text-[10px] text-muted">
-                      Used by the parent to log into the Parent Portal.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-ink">Contact Phone Number</label>
-                    <input
-                      type="tel"
-                      placeholder="e.g. +251912345678 or 0912345678"
-                      value={parentPhone}
-                      onChange={(e) => setParentPhone(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-field p-2 text-xs text-ink"
-                    />
-                    <p className="mt-1 text-[10px] text-muted">
-                      Receives 500m proximity SMS / call alerts.
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-ink">Temporary Password (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="Leave blank to auto-generate secure password"
-                    value={parentTempPassword}
-                    onChange={(e) => setParentTempPassword(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-field p-2 text-xs font-mono text-ink"
-                  />
-                </div>
-
-                {parentError && (
-                  <div className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
-                    ✕ {parentError}
-                  </div>
-                )}
-
-                {parentSuccess && (
-                  <div className="rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800">
-                    {parentSuccess}
-                  </div>
-                )}
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    disabled={savingParent || (!parentEmail.trim() && !parentPhone.trim())}
-                    onClick={handleSaveParent}
-                    className="rounded-lg bg-amber px-4 py-2 text-xs font-bold text-ink shadow-xs hover:opacity-95 disabled:opacity-50"
-                  >
-                    {savingParent ? 'Saving Parent…' : 'Save & Link Parent'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Modal footer with Done button */}
-              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                <span className="text-[11px] text-muted">
-                  Each section saves independently.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => { setStudentToAssign(null); setAssignError(''); setStopError(''); setParentError(''); }}
-                  className="min-h-10 rounded-xl bg-gray-100 px-5 py-2 text-xs font-bold text-ink hover:bg-gray-200"
-                >
-                  Done / Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Parent Credentials Modal */}
-      {parentCredentials && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-200">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-lg">
-                  👨‍👩‍👧
-                </span>
-                <div>
-                  <h3 className="text-base font-bold text-ink">Parent Account Linked!</h3>
-                  <p className="text-xs text-muted">Ready for login at the Parent Portal</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setParentCredentials(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="mt-3 text-xs text-muted leading-relaxed">
-              Parent account for <strong>{parentCredentials.fullName}</strong> is now connected to student <strong>{parentCredentials.studentName}</strong>. Share these login details with the parent:
-            </p>
-
-            <div className="mt-3.5 rounded-xl border border-gray-200 bg-gray-50 p-4 font-mono text-xs flex flex-col gap-2">
-              <div className="flex justify-between">
-                <span className="text-muted">Login Email:</span>
-                <span className="font-bold text-ink">{parentCredentials.email}</span>
-              </div>
-              <div className="flex justify-between border-t border-gray-200/60 pt-2">
-                <span className="text-muted">Temp Password:</span>
-                <span className="font-bold text-ink">{parentCredentials.password}</span>
-              </div>
-              <div className="flex justify-between border-t border-gray-200/60 pt-2">
-                <span className="text-muted">Portal URL:</span>
-                <span className="font-bold text-amber-900">school-bus-iota.vercel.app/login</span>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  const text = `SchoolBus Connect - Parent Portal Login\nStudent: ${parentCredentials.studentName}\nLogin: ${parentCredentials.email}\nTemporary Password: ${parentCredentials.password}\nLogin URL: https://school-bus-iota.vercel.app/login`
-                  navigator.clipboard.writeText(text)
-                  setCopiedCreds(true)
-                  setTimeout(() => setCopiedCreds(false), 3000)
-                }}
-                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-ink hover:bg-gray-50 shadow-2xs"
-              >
-                {copiedCreds ? '✓ Copied to Clipboard!' : '📋 Copy Credentials'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setParentCredentials(null)}
-                className="rounded-xl bg-ink px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 shadow-xs"
-              >
-                Done
               </button>
             </div>
           </div>

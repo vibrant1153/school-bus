@@ -13,13 +13,16 @@ import Students from './manager/Students.jsx'
 import BusesRoutes from './manager/BusesRoutes.jsx'
 import Settings from './manager/Settings.jsx'
 import AuditLog from './manager/AuditLog.jsx'
+import ParentInvite from './pages/ParentInvite.jsx'
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Public Login Route */}
+        {/* Public Login & Invite Routes */}
         <Route path="/" element={<Login />} />
+        <Route path="/invite/:token" element={<ParentInvite />} />
+        <Route path="/invite" element={<ParentInvite />} />
 
         {/* Platform Owner Routes */}
         <Route
