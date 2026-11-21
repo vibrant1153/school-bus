@@ -206,42 +206,9 @@ export default function Login() {
           </p>
         </form>
 
-        {/* Language + Demo footer */}
-        <div className="flex flex-col items-center gap-3.5 border-t border-slate-200/80 pt-4">
+        {/* Language footer */}
+        <div className="flex flex-col items-center justify-center border-t border-slate-200/80 pt-4">
           <LanguageSwitch />
-          <div className="flex flex-col gap-2 w-full text-xs text-slate-500">
-            <p className="text-center text-[11px] font-black uppercase tracking-wider text-slate-400">1-Click Test Accounts</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => { signInDemo('parent'); navigate('/home') }}
-                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-amber-900 border-amber-200/70 bg-amber-50/60"
-              >
-                👨‍👩‍👧 Parent Portal
-              </button>
-              <button
-                type="button"
-                onClick={() => { signInDemo('driver'); navigate('/driver') }}
-                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-slate-800"
-              >
-                🚌 Driver Console
-              </button>
-              <button
-                type="button"
-                onClick={() => { signInDemo('manager'); navigate('/manager') }}
-                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-slate-800"
-              >
-                🏫 School Manager
-              </button>
-              <button
-                type="button"
-                onClick={() => { signInDemo('owner'); navigate('/owner') }}
-                className="btn-3d-subtle rounded-xl py-2 px-3 text-xs font-black text-purple-900 border-purple-200/70 bg-purple-50/60"
-              >
-                👑 Platform Owner
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
