@@ -20,53 +20,55 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
   if (busStatus.mode === 'none') {
     const plannedTime = selectedChild?.morningStop?.time || '07:00 AM'
     return (
-      <section className="card-3d relative overflow-hidden flex flex-col gap-3 rounded-3xl p-6" aria-live="polite">
+      <Link
+        to="/map"
+        className="card-3d card-3d-interactive relative overflow-hidden flex flex-col gap-3 rounded-3xl p-5 sm:p-6 block text-left group"
+        aria-live="polite"
+      >
         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600 border border-slate-200/60 shadow-2xs">
-            <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E6F4F1] px-3 py-1 text-xs font-black text-[#0D9488] border border-[#0D9488]/20 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-[#0D9488]" aria-hidden="true" />
             {t('home.none.badge')}
           </span>
-          <span className="text-xs font-semibold text-slate-500">
+          <span className="text-xs font-bold text-[#64748B]">
             Next: {plannedTime}
           </span>
         </div>
 
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{t('home.none.title')}</h2>
-          <p className="mt-1 text-sm text-slate-600 leading-relaxed">{t('home.none.body', { time: plannedTime })}</p>
+          <h2 className="text-xl sm:text-2xl font-black text-[#172033] tracking-tight">{t('home.none.title')}</h2>
+          <p className="mt-1 text-xs sm:text-sm text-[#64748B] leading-relaxed">{t('home.none.body', { time: plannedTime })}</p>
         </div>
 
-        {/* Visual Route Overview for Beginners/Elders */}
-        <div className="my-1 rounded-2xl bg-slate-50/80 border border-slate-200/60 p-3.5">
-          <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
-            <span>Route</span>
-            <span>Your Stop</span>
+        {/* Visual Route Progress */}
+        <div className="my-1 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] p-3.5">
+          <div className="flex items-center justify-between text-[11px] font-bold text-[#64748B]">
+            <span>Depot</span>
+            <span className="text-[#0D9488] font-black">Your Stop</span>
             <span>School</span>
           </div>
-          <div className="relative mt-2 flex items-center justify-between">
-            <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-1 bg-slate-200 rounded-full" />
-            <div className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-slate-300 text-[10px] font-bold text-slate-700 shadow-xs">
+          <div className="relative mt-2.5 mb-1 flex items-center justify-between px-1">
+            <div className="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1 bg-[#E2E8F0] rounded-full" />
+            <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#E2E8F0] text-[10px] font-bold text-[#64748B] shadow-xs">
               1
             </div>
-            <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-xs font-extrabold text-slate-900 shadow-xs border-2 border-white ring-2 ring-amber-300/40">
+            <div className="relative z-10 flex h-7 w-7 items-center justify-center rounded-full bg-[#0D9488] text-xs font-black text-white shadow-xs border-2 border-white ring-2 ring-[#0D9488]/30">
               📍
             </div>
-            <div className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs">
+            <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#1D3557] text-[10px] font-bold text-white shadow-xs">
               🏫
             </div>
           </div>
-          <p className="mt-2 text-center text-xs font-bold text-slate-700 truncate">
+          <p className="mt-2 text-center text-xs font-black text-[#172033] truncate">
             {stopLabel}
           </p>
         </div>
 
-        <Link
-          to="/map"
-          className="btn-3d-subtle mt-1 flex min-h-12 items-center justify-center rounded-2xl text-center text-sm font-bold text-slate-800"
-        >
-          {t('home.viewRoute')} →
-        </Link>
-      </section>
+        <div className="flex items-center justify-between text-xs font-bold text-[#0D9488] pt-2 border-t border-[#E2E8F0]">
+          <span>{t('home.viewRoute')}</span>
+          <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+        </div>
+      </Link>
     )
   }
 
@@ -75,37 +77,41 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
   const distance = formatDistance(busDistanceM, t)
 
   return (
-    <section className="card-3d relative overflow-hidden flex flex-col gap-3 rounded-3xl p-6" aria-live="polite">
+    <Link
+      to="/map"
+      className="card-3d card-3d-interactive relative overflow-hidden flex flex-col gap-3 rounded-3xl p-5 sm:p-6 block text-left group"
+      aria-live="polite"
+    >
       {/* Top Status Pill */}
       <div className="flex items-center justify-between">
         <span
           className={
-            'inline-flex items-center gap-2 rounded-full px-3.5 py-1 text-xs font-extrabold shadow-2xs ' +
+            'inline-flex items-center gap-2 rounded-full px-3.5 py-1 text-xs font-black shadow-2xs ' +
             (stale
-              ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
-              : 'bg-emerald-100 text-emerald-950 border border-emerald-300/80 radar-live')
+              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+              : 'bg-[#E6F4F1] text-[#0D9488] border border-[#0D9488]/30 radar-live')
           }
         >
           <span
             className={
               'h-2.5 w-2.5 rounded-full ' +
-              (stale ? 'bg-amber-500' : 'bg-emerald-600')
+              (stale ? 'bg-amber-500' : 'bg-[#0D9488]')
             }
             aria-hidden="true"
           />
           {stale ? t('home.lastSeen', { age }).toUpperCase() : t('home.live')}
         </span>
-        <span className="text-xs font-bold text-slate-500">
+        <span className="text-xs font-semibold text-[#64748B]">
           {stale ? t('home.updatedLast', { age }) : t('home.updatedApprox', { age })}
         </span>
       </div>
 
       {/* Main Distance / Status Heading */}
       <div>
-        <p className={'font-black tracking-tight leading-none ' + (stale ? 'text-2xl text-slate-700' : 'text-3xl sm:text-4xl text-slate-950')}>
+        <p className={'font-black tracking-tight leading-none ' + (stale ? 'text-2xl text-[#64748B]' : 'text-3xl sm:text-4xl text-[#172033]')}>
           {stale ? t('home.lastKnown', { distance }) : t('home.about', { distance })}
         </p>
-        <p className="mt-1.5 text-sm font-semibold text-slate-700">
+        <p className="mt-1.5 text-xs sm:text-sm font-semibold text-[#64748B]">
           {t('home.heading', { bus: busLabel, stop: stopLabel })}
         </p>
       </div>
@@ -116,42 +122,37 @@ function StatusCard({ busStatus, busDistanceM, selectedChild, activeTrip }) {
         </div>
       )}
 
-      {/* Live Route Tracker Bar for Non-Tech/Elderly Parents */}
-      <div className="rounded-2xl bg-slate-50/90 border border-slate-200/80 p-3.5 shadow-inner">
-        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+      {/* Live Route Tracker Bar */}
+      <div className="rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] p-3.5 shadow-inner">
+        <div className="flex items-center justify-between text-[11px] font-bold text-[#64748B]">
           <span>Depot</span>
-          <span className="text-amber-900 font-extrabold">Your Stop</span>
+          <span className="text-[#0D9488] font-black">Your Stop</span>
           <span>School</span>
         </div>
         <div className="relative mt-2.5 mb-1 flex items-center justify-between px-1">
-          <div className="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-emerald-500 to-amber-500 rounded-full w-2/3 animate-pulse" />
+          <div className="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1.5 bg-[#E2E8F0] rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-[#1D3557] to-[#0D9488] rounded-full w-2/3 animate-pulse" />
           </div>
-          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white shadow-xs font-bold">
+          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#1D3557] text-xs text-white shadow-xs font-bold">
             ✓
           </div>
-          <div className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-base shadow-md border-2 border-white ring-2 ring-amber-400/50 scale-110">
+          <div className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#0D9488] text-base shadow-md border-2 border-white ring-2 ring-[#0D9488]/40 scale-110">
             🚌
           </div>
-          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-slate-300 text-xs text-slate-700 shadow-xs font-bold">
+          <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#E2E8F0] text-xs text-[#172033] shadow-xs font-bold">
             🏫
           </div>
         </div>
-        <p className="mt-2 text-center text-xs font-extrabold text-slate-800">
-          Next Stop: <span className="text-amber-700">{stopLabel}</span>
+        <p className="mt-2 text-center text-xs font-extrabold text-[#172033]">
+          Next Stop: <span className="text-[#0D9488]">{stopLabel}</span>
         </p>
       </div>
 
-      <Link
-        to="/map"
-        className={
-          'mt-1 flex min-h-13 items-center justify-center rounded-2xl text-center text-sm font-extrabold transition-all ' +
-          (stale ? 'btn-3d-subtle text-slate-800' : 'btn-3d-amber text-slate-950')
-        }
-      >
-        {stale ? t('home.viewLast') : t('home.viewBus')} 🗺️
-      </Link>
-    </section>
+      <div className="flex items-center justify-between text-xs font-black text-[#0D9488] pt-2 border-t border-[#E2E8F0]">
+        <span>{stale ? t('home.viewLast') : t('home.viewBus')}</span>
+        <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+      </div>
+    </Link>
   )
 }
 
@@ -197,6 +198,7 @@ export default function ParentHome() {
       setPassErr(res.error || 'Failed to update password. Please try again.')
     }
   }
+
   const {
     children,
     selectedChild,
@@ -264,46 +266,50 @@ export default function ParentHome() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+      <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] p-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-amber border-t-transparent" />
-          <p className="text-sm font-medium text-muted">Loading parent portal…</p>
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#0D9488] border-t-transparent" />
+          <p className="text-sm font-semibold text-[#64748B]">Loading parent portal…</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col">
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#F8FAFC]">
       <main className="flex flex-1 flex-col gap-4 p-4 sm:p-5 pb-8">
-        {/* Header */}
+        {/* Sleek, Uncluttered Header */}
         <header className="card-3d flex items-center justify-between gap-3 rounded-2xl px-4 py-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase tracking-wider">{t('home.greeting')}</p>
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 truncate tracking-tight">{parentName}</h1>
+            <p className="text-[11px] text-[#64748B] font-bold uppercase tracking-wider">{t('home.greeting')}</p>
+            <h1 className="text-base sm:text-lg font-black text-[#172033] truncate tracking-tight">{parentName}</h1>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitch />
             <button
               type="button"
               onClick={signOut}
+              title="Sign Out"
               aria-label="Sign out"
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/80 px-3 py-1.5 text-xs font-black text-red-600 shadow-2xs hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#E2E8F0] bg-white text-[#64748B] hover:text-[#DC2626] hover:bg-red-50 hover:border-red-200 active:scale-95 transition-all shadow-2xs"
             >
-              <span aria-hidden="true">🚪</span>
-              <span>Log Out</span>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
             </button>
           </div>
         </header>
 
-        {/* Temporary Password Warning Banner */}
+        {/* Temporary Password Notice (Only shown if temp password) */}
         {mustChangePassword && (
           <div className="card-3d rounded-2xl border-amber-300 bg-amber-50/90 p-3.5 text-xs font-bold text-amber-950 flex items-center justify-between gap-2 shadow-xs">
             <span>⚠️ Signed in with a temporary password</span>
             <button
               type="button"
               onClick={() => { setShowPassModal(true); setPassErr(''); setPassSuccess(false); setNewPass(''); setConfirmPass('') }}
-              className="btn-3d-amber rounded-xl px-3 py-1.5 text-xs font-black text-slate-950 whitespace-nowrap"
+              className="btn-3d-accent rounded-xl px-3 py-1.5 text-xs font-black text-white whitespace-nowrap"
             >
               Set Password →
             </button>
@@ -311,15 +317,15 @@ export default function ParentHome() {
         )}
 
         {error && (
-          <div className="card-3d rounded-2xl border-red-200 bg-red-50/90 p-4 text-xs font-bold text-red-700">
+          <div className="card-3d rounded-2xl border-[#DC2626]/30 bg-red-50/90 p-4 text-xs font-bold text-[#DC2626]">
             {error}
           </div>
         )}
 
-        {/* Multi-child selector */}
+        {/* Multi-child selector tabs */}
         {children.length > 1 && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 px-0.5">
-            <span className="text-xs font-extrabold text-slate-500 whitespace-nowrap">
+            <span className="text-xs font-black text-[#64748B] whitespace-nowrap">
               {t('home.childSelector')}:
             </span>
             {children.map((child) => (
@@ -330,8 +336,8 @@ export default function ParentHome() {
                 className={
                   'rounded-xl px-3.5 py-1.5 text-xs font-black transition-all whitespace-nowrap ' +
                   (selectedChildId === child.id
-                    ? 'btn-3d-amber text-slate-950'
-                    : 'btn-3d-subtle text-slate-600')
+                    ? 'bg-[#0D9488] text-white shadow-xs'
+                    : 'bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#172033]')
                 }
               >
                 {child.fullName}
@@ -342,34 +348,34 @@ export default function ParentHome() {
 
         {/* Selected Child Summary Card with 3D depth */}
         {selectedChild ? (
-          <section className="card-3d card-3d-interactive flex items-center justify-between gap-3.5 rounded-3xl p-4.5">
+          <section className="card-3d flex items-center justify-between gap-3.5 rounded-3xl p-4.5">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#1D3557] to-[#0D9488] text-lg font-black text-white shadow-sm border border-[#0D9488]/30">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#1D3557] to-[#0D9488] text-lg font-black text-white shadow-xs border border-[#0D9488]/30">
                 {selectedChild.fullName?.charAt(0) || '🎓'}
               </div>
               <div className="min-w-0">
-                <p className="text-base font-black text-slate-900 truncate">{selectedChild.fullName}</p>
-                <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                <p className="text-base font-black text-[#172033] truncate">{selectedChild.fullName}</p>
+                <p className="text-xs font-semibold text-[#64748B] mt-0.5">
                   {t('home.grade', { n: selectedChild.grade ?? '—' })} · Bus #{selectedChild.busNumber || 1}
                 </p>
               </div>
             </div>
             <div className="text-right shrink-0">
-              <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+              <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold text-[#64748B]">
                 {t('home.yourStop')}
               </span>
-              <p className="text-xs font-black text-slate-800 max-w-[130px] truncate">
+              <p className="text-xs font-black text-[#172033] max-w-[130px] truncate">
                 📍 {selectedChild.morningStop?.name || t('home.stop', { n: 1 })}
               </p>
             </div>
           </section>
         ) : (
-          <section className="card-3d rounded-3xl p-6 text-center text-sm font-semibold text-slate-500">
+          <section className="card-3d rounded-3xl p-6 text-center text-sm font-semibold text-[#64748B]">
             No children registered to this account. Contact your school administrator to link your child.
           </section>
         )}
 
-        {/* Live Trip Status Card */}
+        {/* Live Trip Status Card (Tappable to View Map) */}
         <StatusCard
           busStatus={busStatus}
           busDistanceM={busDistanceM}
@@ -382,18 +388,18 @@ export default function ParentHome() {
           {selectedChild?.schoolPhone ? (
             <a
               href={`tel:${selectedChild.schoolPhone}`}
-              className="btn-3d-subtle flex min-h-13 items-center justify-center gap-2.5 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-slate-900"
+              className="btn-3d-subtle flex min-h-12 items-center justify-center gap-2 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-[#172033]"
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 text-sm shadow-2xs">📞</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-xl bg-[#E6F4F1] text-[#0D9488] text-xs shadow-2xs">📞</span>
               <span>{t('home.call')}</span>
             </a>
           ) : (
             <button
               type="button"
               disabled
-              className="flex min-h-13 items-center justify-center gap-2 rounded-2xl border border-slate-200/50 bg-white/40 p-3 text-center text-xs sm:text-sm font-bold text-slate-400 opacity-60"
+              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#E2E8F0] bg-white/40 p-3 text-center text-xs sm:text-sm font-bold text-[#64748B]/50 opacity-60"
             >
-              <span className="text-base">📞</span>
+              <span className="text-sm">📞</span>
               <span>{t('home.call')}</span>
             </button>
           )}
@@ -401,34 +407,34 @@ export default function ParentHome() {
           <button
             type="button"
             onClick={() => setShowAbsenceModal(true)}
-            className="btn-3d-subtle flex min-h-13 items-center justify-center gap-2.5 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-slate-900"
+            className="btn-3d-subtle flex min-h-12 items-center justify-center gap-2 rounded-2xl p-3 text-center text-xs sm:text-sm font-black text-[#172033]"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100 text-amber-900 text-sm shadow-2xs">📝</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-xl bg-[#E6F4F1] text-[#0D9488] text-xs shadow-2xs">📝</span>
             <span>{t('home.absence.title')}</span>
           </button>
         </div>
 
         {absenceMsg && (
-          <div className="card-3d rounded-2xl border-emerald-300 bg-emerald-50/90 p-3.5 text-xs font-bold text-emerald-900">
+          <div className="card-3d rounded-2xl border-[#0D9488]/40 bg-[#E6F4F1] p-3.5 text-xs font-bold text-[#0D9488]">
             ✓ {absenceMsg}
           </div>
         )}
 
         {absenceError && (
-          <div className="card-3d rounded-2xl border-red-300 bg-red-50/90 p-3.5 text-xs font-bold text-red-700">
+          <div className="card-3d rounded-2xl border-[#DC2626]/30 bg-red-50/90 p-3.5 text-xs font-bold text-[#DC2626]">
             ✕ {absenceError}
           </div>
         )}
 
-        {/* Active Reported Absences (only shown if absences exist) */}
+        {/* Active Reported Absences */}
         {absences.length > 0 && (
           <section className="card-3d flex flex-col gap-2.5 rounded-3xl p-4.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+              <span className="text-xs font-black text-[#172033] flex items-center gap-1.5">
                 <span>⚠️</span>
                 <span>Reported Absences</span>
               </span>
-              <span className="text-[11px] font-bold text-slate-500">
+              <span className="text-[11px] font-bold text-[#64748B]">
                 {absences.length} {absences.length === 1 ? 'record' : 'records'}
               </span>
             </div>
@@ -437,68 +443,67 @@ export default function ParentHome() {
               {absences.map((abs) => (
                 <div
                   key={abs.id}
-                  className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/70 p-3 text-xs shadow-2xs"
+                  className="flex items-center justify-between rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs shadow-2xs"
                 >
                   <div className="flex flex-col gap-0.5">
-                    <span className="font-black text-slate-900">
+                    <span className="font-black text-[#172033]">
                       {abs.trip_date} · {t(`home.absence.direction.${abs.direction}`) || abs.direction}
                     </span>
                     {abs.reason && (
-                      <span className="text-slate-500 italic">&ldquo;{abs.reason}&rdquo;</span>
+                      <span className="text-[#64748B] italic">&ldquo;{abs.reason}&rdquo;</span>
                     )}
                   </div>
                   <button
                     type="button"
                     disabled={cancellingAbsenceId === abs.id}
                     onClick={() => handleCancelAbsence(abs.id)}
-                    className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 active:scale-95 transition-all"
+                    className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 font-bold text-[#DC2626] hover:bg-red-100 disabled:opacity-50 active:scale-95 transition-all"
                   >
                     {cancellingAbsenceId === abs.id ? t('home.absence.cancelling') : t('home.absence.cancel')}
                   </button>
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-slate-500 font-medium">{t('home.absence.driverNotice')}</p>
+            <p className="text-[11px] text-[#64748B] font-medium">{t('home.absence.driverNotice')}</p>
           </section>
         )}
-
       </main>
 
       {/* Report Absence Modal */}
       {showAbsenceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
-          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-white/90">
+          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-[#E2E8F0]">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-slate-900">{t('home.absence.title')}</h3>
+              <h3 className="text-lg font-black text-[#172033]">{t('home.absence.title')}</h3>
               <button
                 type="button"
                 onClick={() => setShowAbsenceModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F8FAFC] text-[#64748B] hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
-            <p className="mt-1 text-xs font-semibold text-slate-500">Student: {selectedChild?.fullName}</p>
+            <p className="mt-1 text-xs font-semibold text-[#64748B]">Student: {selectedChild?.fullName}</p>
 
             <form onSubmit={handleReportAbsence} className="mt-4 flex flex-col gap-3.5">
               <div>
-                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.date')}</label>
+                <label className="text-xs font-black uppercase tracking-wider text-[#172033]">{t('home.absence.date')}</label>
                 <input
                   type="date"
                   required
                   min={todayStr}
                   value={absenceDate}
                   onChange={(e) => setAbsenceDate(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
+                  className="mt-1 w-full rounded-2xl border border-[#E2E8F0] bg-white p-3 text-sm font-medium text-[#172033] shadow-2xs focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.direction')}</label>
+                <label className="text-xs font-black uppercase tracking-wider text-[#172033]">{t('home.absence.direction')}</label>
                 <select
                   value={absenceDirection}
                   onChange={(e) => setAbsenceDirection(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
+                  className="mt-1 w-full rounded-2xl border border-[#E2E8F0] bg-white p-3 text-sm font-medium text-[#172033] shadow-2xs focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none"
                 >
                   <option value="both">{t('home.absence.direction.both')}</option>
                   <option value="morning">{t('home.absence.direction.morning')}</option>
@@ -507,13 +512,13 @@ export default function ParentHome() {
               </div>
 
               <div>
-                <label className="text-xs font-extrabold text-slate-700">{t('home.absence.reason')}</label>
+                <label className="text-xs font-black uppercase tracking-wider text-[#172033]">{t('home.absence.reason')}</label>
                 <input
                   type="text"
                   placeholder={t('home.absence.reasonPlaceholder')}
                   value={absenceReason}
                   onChange={(e) => setAbsenceReason(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200/90 bg-white/95 p-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
+                  className="mt-1 w-full rounded-2xl border border-[#E2E8F0] bg-white p-3 text-sm font-medium text-[#172033] placeholder:text-[#64748B]/60 shadow-2xs focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none"
                 />
               </div>
 
@@ -521,14 +526,14 @@ export default function ParentHome() {
                 <button
                   type="button"
                   onClick={() => setShowAbsenceModal(false)}
-                  className="btn-3d-subtle rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-600"
+                  className="btn-3d-subtle rounded-2xl px-4 py-2.5 text-xs font-bold text-[#64748B]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={reportingAbsence}
-                  className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
+                  className="btn-3d-accent rounded-2xl px-5 py-2.5 text-xs font-black text-white disabled:opacity-50"
                 >
                   {reportingAbsence ? t('home.absence.submitting') : t('home.absence.submit')}
                 </button>
@@ -541,58 +546,58 @@ export default function ParentHome() {
       {/* Change Password Modal */}
       {showPassModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
-          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-white/90">
+          <div className="card-3d w-full max-w-sm rounded-3xl p-6 shadow-[0_25px_60px_rgba(15,23,42,0.2)] border border-[#E2E8F0]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xl">🔐</span>
-                <h3 className="text-lg font-black text-slate-900">Change Account Password</h3>
+                <h3 className="text-lg font-black text-[#172033]">Set Permanent Password</h3>
               </div>
               <button
                 type="button"
                 onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F8FAFC] text-[#64748B] hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
               >
                 ✕
               </button>
             </div>
-            <p className="mt-1 text-xs font-medium text-slate-500">
+            <p className="mt-1 text-xs font-medium text-[#64748B]">
               Choose a secure permanent password for your parent portal account.
             </p>
 
             {passSuccess && (
-              <div className="mt-3 rounded-2xl border border-emerald-300 bg-emerald-50/90 p-3 text-xs font-bold text-emerald-900">
+              <div className="mt-3 rounded-2xl border border-[#0D9488]/40 bg-[#E6F4F1] p-3 text-xs font-bold text-[#0D9488]">
                 ✓ Password updated successfully!
               </div>
             )}
 
             {passErr && (
-              <div className="mt-3 rounded-2xl border border-red-300 bg-red-50/90 p-3 text-xs font-bold text-red-700">
+              <div className="mt-3 rounded-2xl border border-[#DC2626]/30 bg-red-50/90 p-3 text-xs font-bold text-[#DC2626]">
                 ✕ {passErr}
               </div>
             )}
 
             <form onSubmit={handlePasswordChange} className="mt-4 flex flex-col gap-3">
               <div>
-                <label className="text-xs font-extrabold text-slate-700">New Password</label>
+                <label className="text-xs font-black uppercase tracking-wider text-[#172033]">New Password</label>
                 <input
                   type="password"
                   required
                   value={newPass}
                   onChange={(e) => setNewPass(e.target.value)}
                   placeholder="At least 8 characters"
-                  className="mt-1 min-h-11 w-full rounded-2xl border border-slate-200/90 bg-white/95 px-3.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
+                  className="mt-1 min-h-11 w-full rounded-2xl border border-[#E2E8F0] bg-white px-3.5 text-sm font-medium text-[#172033] placeholder:text-[#64748B]/60 focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-extrabold text-slate-700">Confirm Password</label>
+                <label className="text-xs font-black uppercase tracking-wider text-[#172033]">Confirm Password</label>
                 <input
                   type="password"
                   required
                   value={confirmPass}
                   onChange={(e) => setConfirmPass(e.target.value)}
                   placeholder="Repeat new password"
-                  className="mt-1 min-h-11 w-full rounded-2xl border border-slate-200/90 bg-white/95 px-3.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none"
+                  className="mt-1 min-h-11 w-full rounded-2xl border border-[#E2E8F0] bg-white px-3.5 text-sm font-medium text-[#172033] placeholder:text-[#64748B]/60 focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none"
                 />
               </div>
 
@@ -601,14 +606,14 @@ export default function ParentHome() {
                   type="button"
                   onClick={() => { setShowPassModal(false); setPassErr(''); setPassSuccess(false) }}
                   disabled={changingPass}
-                  className="btn-3d-subtle rounded-2xl px-4 py-2 text-xs font-bold text-slate-600"
+                  className="btn-3d-subtle rounded-2xl px-4 py-2 text-xs font-bold text-[#64748B]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={changingPass}
-                  className="rounded-2xl bg-slate-900 px-5 py-2 text-xs font-black text-white shadow-md hover:bg-slate-800 disabled:opacity-50 active:scale-95 transition-all"
+                  className="btn-3d-accent rounded-2xl px-5 py-2 text-xs font-black text-white disabled:opacity-50"
                 >
                   {changingPass ? 'Saving…' : 'Save Password'}
                 </button>

@@ -189,7 +189,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="btn-3d-amber mt-2 flex min-h-13 items-center justify-center rounded-2xl text-base font-black disabled:opacity-50"
+            className="btn-3d-accent mt-2 flex min-h-13 items-center justify-center rounded-2xl text-base font-black text-white disabled:opacity-50"
           >
             {loading ? (
               <div className="flex items-center gap-2">
@@ -253,7 +253,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={changingPassword}
-                className="btn-3d-amber mt-2 rounded-2xl py-3 text-sm font-black text-slate-950 disabled:opacity-50"
+                className="btn-3d-accent mt-2 rounded-2xl py-3 text-sm font-black text-white disabled:opacity-50"
               >
                 {changingPassword ? 'Saving…' : 'Save & Continue →'}
               </button>
