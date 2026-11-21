@@ -1,152 +1,186 @@
 @import "tailwindcss";
 
 @theme {
+  /* New Master Design System Palette */
+  --color-sidebar: #101828;
+  --color-primary: #1D3557;
+  --color-primary-dark: #14243b;
+  --color-primary-light: #254673;
+  --color-accent: #0D9488;
+  --color-accent-light: #E6F4F1;
+  --color-accent-dark: #0f766e;
   --color-ground: #F8FAFC;
-  --color-ink: #0F172A;
-  --color-muted: #475569;
+  --color-card: #FFFFFF;
+  --color-text: #172033;
+  --color-secondary: #64748B;
+  --color-border: #E2E8F0;
+  --color-danger: #DC2626;
+
+  /* Legacy tokens mapped directly to the new palette */
+  --color-ink: #172033;
+  --color-muted: #64748B;
   --color-line: #E2E8F0;
-  --color-field: #94A3B8;
-  --color-amber: #F5B301;
-  --color-amber-light: #FEF3C7;
-  --color-live: #10B981;
-  --color-live-dark: #059669;
-  --color-night: #0B1320;
-  --color-night-card: #152238;
-  --color-night-line: #223755;
-  --color-night-muted: #94A3B8;
-  --color-go: #10B981;
-  --color-danger: #EF4444;
-  --color-warn: #F87171;
+  --color-field: #E2E8F0;
+  --color-amber: #0D9488;
+  --color-amber-light: #E6F4F1;
+  --color-live: #0D9488;
+  --color-live-dark: #0f766e;
+  --color-night: #101828;
+  --color-night-card: #172033;
+  --color-night-line: #1e293b;
+  --color-night-muted: #64748B;
+  --color-go: #0D9488;
+  --color-warn: #DC2626;
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Ethiopic", sans-serif;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(at 0% 0%, rgba(245, 179, 1, 0.06) 0px, transparent 40%),
-              radial-gradient(at 100% 10%, rgba(16, 185, 129, 0.05) 0px, transparent 40%),
+  background: radial-gradient(at 0% 0%, rgba(13, 148, 136, 0.05) 0px, transparent 40%),
+              radial-gradient(at 100% 10%, rgba(29, 53, 87, 0.04) 0px, transparent 40%),
               #F8FAFC;
-  color: var(--color-ink);
+  color: #172033;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* 3D Glassmorphism & Soft Lighting Utilities */
+/* 3D Modern Card: Clean white card, crisp border, elegant soft shadow */
 .card-3d {
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
   box-shadow:
-    0 1px 3px rgba(15, 23, 42, 0.03),
-    0 10px 25px -4px rgba(15, 23, 42, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 1px 3px rgba(16, 24, 40, 0.04),
+    0 8px 24px -4px rgba(16, 24, 40, 0.05);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .card-3d-interactive:hover {
   transform: translateY(-2px);
   box-shadow:
-    0 3px 6px rgba(15, 23, 42, 0.04),
-    0 16px 32px -4px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
+    0 3px 6px rgba(16, 24, 40, 0.04),
+    0 16px 32px -4px rgba(16, 24, 40, 0.08),
+    0 0 0 1px #CBD5E1;
 }
 
 .card-3d-interactive:active {
   transform: translateY(0.5px);
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.06),
-    0 4px 12px -2px rgba(15, 23, 42, 0.04),
-    inset 0 1px 1px rgba(0, 0, 0, 0.04);
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 4px 12px -2px rgba(16, 24, 40, 0.04);
 }
 
-/* 3D Amber Button with Top Highlight & Bottom Ridge */
-.btn-3d-amber {
-  background: linear-gradient(180deg, #FFC72C 0%, #F5B301 100%);
-  border: 1px solid rgba(217, 149, 0, 0.4);
+/* 3D Accent Button (#0D9488 Teal): Main Call-to-Action */
+.btn-3d-amber,
+.btn-3d-accent {
+  background: linear-gradient(180deg, #14B8A6 0%, #0D9488 100%);
+  border: 1px solid rgba(13, 148, 136, 0.6);
+  color: #FFFFFF !important;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.05),
-    0 6px 18px -2px rgba(245, 179, 1, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -2px 0 rgba(184, 126, 0, 0.35);
+    0 4px 14px -2px rgba(13, 148, 136, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 0 rgba(15, 118, 110, 0.4);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn-3d-amber:hover {
-  filter: brightness(1.02);
+.btn-3d-amber:hover,
+.btn-3d-accent:hover {
+  filter: brightness(1.05);
   transform: translateY(-1px);
   box-shadow:
     0 3px 6px rgba(0, 0, 0, 0.06),
-    0 8px 22px -2px rgba(245, 179, 1, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -2px 0 rgba(184, 126, 0, 0.4);
+    0 8px 20px -2px rgba(13, 148, 136, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
-.btn-3d-amber:active {
+.btn-3d-amber:active,
+.btn-3d-accent:active {
   transform: translateY(1.5px);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.05),
-    0 2px 6px -1px rgba(245, 179, 1, 0.3),
+    0 2px 6px -1px rgba(13, 148, 136, 0.25),
     inset 0 2px 3px rgba(0, 0, 0, 0.15);
 }
 
-/* 3D Subtle Clean Button */
-.btn-3d-subtle {
-  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+/* 3D Primary Button (#1D3557 Deep Navy) */
+.btn-3d-primary {
+  background: linear-gradient(180deg, #254673 0%, #1D3557 100%);
+  border: 1px solid rgba(29, 53, 87, 0.6);
+  color: #FFFFFF !important;
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 4px 12px -2px rgba(15, 23, 42, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 1),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 4px 14px -2px rgba(29, 53, 87, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -2px 0 rgba(17, 32, 53, 0.4);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-3d-primary:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.btn-3d-primary:active {
+  transform: translateY(1px);
+}
+
+/* 3D Subtle White Button */
+.btn-3d-subtle {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  color: #172033;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 4px 12px -2px rgba(16, 24, 40, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-3d-subtle:hover {
-  background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 100%);
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+  color: #0D9488;
   transform: translateY(-1px);
   box-shadow:
-    0 2px 4px rgba(15, 23, 42, 0.05),
-    0 6px 16px -2px rgba(15, 23, 42, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
+    0 2px 4px rgba(16, 24, 40, 0.05),
+    0 6px 16px -2px rgba(16, 24, 40, 0.06);
 }
 
 .btn-3d-subtle:active {
   transform: translateY(1px);
   box-shadow:
-    0 1px 1px rgba(15, 23, 42, 0.05),
+    0 1px 1px rgba(16, 24, 40, 0.05),
     inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* Floating Glass Dock Navigation */
 .nav-glass-dock {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  border: 1px solid #E2E8F0;
   box-shadow:
-    0 -4px 20px -2px rgba(15, 23, 42, 0.05),
-    0 12px 30px rgba(0, 0, 0, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 -4px 20px -2px rgba(16, 24, 40, 0.04),
+    0 12px 30px rgba(16, 24, 40, 0.07);
 }
 
-/* Radar pulse animation for active buses */
+/* Radar pulse animation for active buses (Teal Accent) */
 @keyframes radar-pulse {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.55);
   }
   70% {
     transform: scale(1.02);
-    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 10px rgba(13, 148, 136, 0);
   }
   100% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
   }
 }
 
 .radar-live {
   animation: radar-pulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
-

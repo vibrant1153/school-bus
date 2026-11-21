@@ -344,7 +344,7 @@ export default function ParentHome() {
         {selectedChild ? (
           <section className="card-3d card-3d-interactive flex items-center justify-between gap-3.5 rounded-3xl p-4.5">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-amber-200 text-lg font-black text-slate-900 shadow-sm border border-amber-300/60">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#1D3557] to-[#0D9488] text-lg font-black text-white shadow-sm border border-[#0D9488]/30">
                 {selectedChild.fullName?.charAt(0) || '🎓'}
               </div>
               <div className="min-w-0">

@@ -222,7 +222,7 @@ export default function ParentInvite() {
 
         {/* Branding */}
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 shadow-[0_8px_24px_rgba(245,179,1,0.38)] border border-amber-200/60">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-[#1D3557] to-[#0D9488] text-white shadow-[0_8px_24px_rgba(13,148,136,0.25)] border border-[#0D9488]/30">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="5" width="18" height="12" rx="3" />
               <path d="M3 11h18" />
@@ -231,8 +231,8 @@ export default function ParentInvite() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-900">SchoolBus Connect</h1>
-            <p className="mt-0.5 text-xs font-bold uppercase tracking-wider text-amber-700">
+            <h1 className="text-2xl font-black tracking-tight text-[#172033]">SchoolBus Connect</h1>
+            <p className="mt-0.5 text-xs font-bold uppercase tracking-wider text-[#0D9488]">
               Parent Invitation
             </p>
           </div>
@@ -274,11 +274,11 @@ export default function ParentInvite() {
         {!loading && !validateError && inviteData && (
           <div className="flex flex-col gap-5">
             {/* School & Phone Badge */}
-            <div className="rounded-2xl bg-amber-50/80 border border-amber-200/90 p-4 text-center">
-              <span className="text-[11px] font-black uppercase tracking-wider text-amber-800">School Bus Registration</span>
-              <p className="text-sm font-extrabold text-slate-900 mt-0.5">{inviteData.school_name}</p>
-              <p className="text-xs font-medium text-slate-600 mt-1">
-                Authorized for phone: <strong className="font-mono text-slate-900">{inviteData.phone_masked}</strong>
+            <div className="rounded-2xl bg-[#E6F4F1] border border-[#0D9488]/30 p-4 text-center">
+              <span className="text-[11px] font-black uppercase tracking-wider text-[#0D9488]">School Bus Registration</span>
+              <p className="text-sm font-extrabold text-[#172033] mt-0.5">{inviteData.school_name}</p>
+              <p className="text-xs font-medium text-[#64748B] mt-1">
+                Authorized for phone: <strong className="font-mono text-[#172033]">{inviteData.phone_masked}</strong>
               </p>
             </div>
 

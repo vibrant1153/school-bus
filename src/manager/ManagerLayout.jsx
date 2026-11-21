@@ -58,18 +58,18 @@ export default function ManagerLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 lg:flex">
+    <div className="min-h-screen bg-[#F8FAFC] lg:flex">
       {/* Sidebar Navigation */}
-      <aside className="bg-ink text-white lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:py-6">
+      <aside className="bg-[#101828] text-white lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:py-6">
         {/* Brand Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-3 lg:pt-0 lg:pb-6 border-b border-white/10 lg:border-b-0">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber font-extrabold text-ink shadow-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0D9488] font-extrabold text-white shadow-sm">
               SC
             </div>
             <div>
-              <p className="text-[15px] font-bold leading-tight">SchoolBus Connect</p>
-              <p className="text-[11px] text-night-muted font-medium">School Manager Portal</p>
+              <p className="text-[15px] font-bold leading-tight text-white">SchoolBus Connect</p>
+              <p className="text-[11px] text-[#64748B] font-medium">School Manager Portal</p>
             </div>
           </div>
           {/* Prominent Log Out for Mobile / Tablet */}
@@ -78,7 +78,7 @@ export default function ManagerLayout() {
               type="button"
               onClick={signOut}
               aria-label="Sign out"
-              className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white active:scale-95 transition-all shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl border border-[#DC2626]/40 bg-[#DC2626]/15 px-3 py-1.5 text-xs font-bold text-red-400 hover:bg-[#DC2626] hover:text-white active:scale-95 transition-all shadow-xs"
             >
               <span aria-hidden="true">🚪</span>
               <span>Log Out</span>
@@ -96,8 +96,8 @@ export default function ManagerLayout() {
               className={({ isActive }) =>
                 'flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-[14px] whitespace-nowrap transition-all ' +
                 (isActive
-                  ? 'bg-amber text-ink font-bold shadow-xs'
-                  : 'text-night-muted hover:bg-white/10 hover:text-white font-medium')
+                  ? 'bg-[#0D9488] text-white font-bold shadow-xs'
+                  : 'text-[#64748B] hover:bg-white/10 hover:text-white font-medium')
               }
             >
               <span className="text-base" aria-hidden="true">{item.icon}</span>
@@ -107,15 +107,15 @@ export default function ManagerLayout() {
         </nav>
 
         {/* Manager & School Footer (Desktop) */}
-        <div className="mt-auto hidden border-t border-white/10 px-5 pt-5 pb-2 text-xs text-night-muted lg:block">
+        <div className="mt-auto hidden border-t border-white/10 px-5 pt-5 pb-2 text-xs text-[#64748B] lg:block">
           <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
             <p className="font-bold text-white text-sm truncate">{schoolName}</p>
-            <p className="mt-1 text-night-muted text-xs truncate">Manager: {managerName}</p>
+            <p className="mt-1 text-[#64748B] text-xs truncate">Manager: {managerName}</p>
             <div className="mt-3 flex flex-col gap-2">
               <button
                 type="button"
                 onClick={() => { setShowPassModal(true); setChangeErr(''); setChangeSuccess(false); setNewPass(''); setConfirmPass('') }}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/10 py-1.5 text-xs font-semibold text-night-muted hover:bg-white/20 hover:text-white transition-all shadow-2xs"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/10 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/20 hover:text-white transition-all shadow-2xs"
               >
                 <span>🔑</span>
                 <span>Change Password</span>
@@ -124,7 +124,7 @@ export default function ManagerLayout() {
                 type="button"
                 onClick={signOut}
                 aria-label="Sign out"
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/40 bg-red-500/15 py-1.5 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white active:scale-95 transition-all shadow-xs"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#DC2626]/40 bg-[#DC2626]/15 py-1.5 text-xs font-bold text-red-400 hover:bg-[#DC2626] hover:text-white active:scale-95 transition-all shadow-xs"
               >
                 <span aria-hidden="true">🚪</span>
                 <span>Sign Out</span>

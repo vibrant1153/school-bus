@@ -125,9 +125,9 @@ export default function Login() {
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-8 sm:p-6">
       <div className="card-3d flex flex-col justify-center gap-7 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.08)] border border-white/85">
 
-        {/* Branding with 3D Amber Emblem */}
+        {/* Branding with 3D Emblem */}
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 shadow-[0_8px_24px_rgba(245,179,1,0.38)] border border-amber-200/60 transform hover:scale-105 transition-transform duration-300">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-[#1D3557] to-[#0D9488] text-white shadow-[0_8px_24px_rgba(13,148,136,0.25)] border border-[#0D9488]/30 transform hover:scale-105 transition-transform duration-300">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="5" width="18" height="12" rx="3" />
               <path d="M3 11h18" />
@@ -136,8 +136,8 @@ export default function Login() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl sm:text-[26px] font-black tracking-tight text-slate-900">SchoolBus Connect</h1>
-            <p className="mt-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <h1 className="text-2xl sm:text-[26px] font-black tracking-tight text-[#172033]">SchoolBus Connect</h1>
+            <p className="mt-0.5 text-xs font-semibold uppercase tracking-wider text-[#64748B]">
               Safe Student Transit
             </p>
           </div>
@@ -145,7 +145,7 @@ export default function Login() {
 
         {/* Error Banner */}
         {(localError || authError) && (
-          <div className="card-3d rounded-2xl border-red-200 bg-red-50/90 p-3.5 text-xs font-bold text-red-700 shadow-2xs">
+          <div className="card-3d rounded-2xl border-[#DC2626]/30 bg-red-50/90 p-3.5 text-xs font-bold text-[#DC2626] shadow-2xs">
             {localError || authError}
           </div>
         )}
@@ -153,7 +153,7 @@ export default function Login() {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="identifier" className="text-xs font-black uppercase tracking-wider text-slate-700">
+            <label htmlFor="identifier" className="text-xs font-black uppercase tracking-wider text-[#172033]">
               Email or Phone Number
             </label>
             <input
@@ -165,12 +165,12 @@ export default function Login() {
               onChange={(e) => setIdentifier(e.target.value)}
               disabled={loading}
               placeholder="e.g. 0911223344 or name@school.com"
-              className="min-h-12 rounded-2xl border border-slate-200/90 bg-white/90 px-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none transition-all"
+              className="min-h-12 rounded-2xl border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-[#172033] placeholder:text-[#64748B]/60 shadow-2xs focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none transition-all"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-xs font-black uppercase tracking-wider text-slate-700">
+            <label htmlFor="password" className="text-xs font-black uppercase tracking-wider text-[#172033]">
               Password
             </label>
             <input
@@ -182,18 +182,18 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
               placeholder="••••••••"
-              className="min-h-12 rounded-2xl border border-slate-200/90 bg-white/90 px-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-amber-400 focus:ring-2 focus:ring-amber-300/30 focus:outline-none transition-all"
+              className="min-h-12 rounded-2xl border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-[#172033] placeholder:text-[#64748B]/60 shadow-2xs focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 focus:outline-none transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="btn-3d-amber mt-2 flex min-h-13 items-center justify-center rounded-2xl text-base font-black text-slate-950 disabled:opacity-50"
+            className="btn-3d-amber mt-2 flex min-h-13 items-center justify-center rounded-2xl text-base font-black disabled:opacity-50"
           >
             {loading ? (
               <div className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 <span>Signing in…</span>
               </div>
             ) : (
@@ -201,13 +201,13 @@ export default function Login() {
             )}
           </button>
 
-          <p className="text-center text-[11px] leading-relaxed text-slate-500 font-medium">
+          <p className="text-center text-[11px] leading-relaxed text-[#64748B] font-medium">
             {t('login.forgot') || 'Your account is created by your school. Contact your school administrator if you need assistance.'}
           </p>
         </form>
 
         {/* Language footer */}
-        <div className="flex flex-col items-center justify-center border-t border-slate-200/80 pt-4">
+        <div className="flex flex-col items-center justify-center border-t border-[#E2E8F0] pt-4">
           <LanguageSwitch />
         </div>
       </div>

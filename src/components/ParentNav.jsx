@@ -26,14 +26,14 @@ export default function ParentNav({ active }) {
               className={
                 'relative flex flex-1 flex-col items-center justify-center rounded-2xl py-2 text-center transition-all duration-200 ' +
                 (isActive
-                  ? 'bg-gradient-to-b from-amber-50 to-amber-100/70 text-slate-900 font-extrabold shadow-xs border border-amber-300/60 scale-[1.02]'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-white/60 active:scale-95')
+                  ? 'bg-[#E6F4F1] text-[#0D9488] font-extrabold shadow-xs border border-[#0D9488]/30 scale-[1.02]'
+                  : 'text-[#64748B] hover:text-[#172033] hover:bg-white/60 active:scale-95')
               }
             >
               <span className="text-xl leading-none transition-transform duration-200" aria-hidden="true">
                 {tab.icon}
               </span>
-              <span className={'mt-1 text-[11px] sm:text-xs tracking-tight ' + (isActive ? 'font-black text-amber-950' : 'font-semibold')}>
+              <span className={'mt-1 text-[11px] sm:text-xs tracking-tight ' + (isActive ? 'font-black text-[#0D9488]' : 'font-semibold')}>
                 {t(tab.key)}
               </span>
             </Link>
