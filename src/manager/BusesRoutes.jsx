@@ -411,7 +411,7 @@ export default function BusesRoutes() {
       await initializeDefaultRoutesAndBuses()
       setToastMsg('Standard transit routes (Bole & Kazanchis) and vehicles configured successfully!')
     } catch (err) {
-      alert(err.message || 'Failed to initialize fleet.')
+      setToastMsg(`Error: ${err.message || 'Failed to initialize fleet.'}`)
     } finally {
       setInitLoading(false)
     }
@@ -429,12 +429,18 @@ export default function BusesRoutes() {
     <div className="flex flex-col gap-5">
       {/* Toast Alert */}
       {toastMsg && (
-        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-900 shadow-2xs animate-fadeIn">
+        <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 text-xs font-semibold shadow-2xs animate-fadeIn ${
+          toastMsg.startsWith('Error:')
+            ? 'border-red-200 bg-red-50 text-red-900'
+            : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+        }`}>
           <div className="flex items-center gap-2">
-            <span className="text-[#0D9488] font-bold">✓</span>
+            <span className={toastMsg.startsWith('Error:') ? 'text-[#DC2626] font-bold text-sm' : 'text-[#0D9488] font-bold'}>
+              {toastMsg.startsWith('Error:') ? '⚠' : '✓'}
+            </span>
             <span>{toastMsg}</span>
           </div>
-          <button onClick={() => setToastMsg(null)} className="text-emerald-700 hover:text-emerald-900 font-bold ml-4">✕</button>
+          <button onClick={() => setToastMsg(null)} className="hover:opacity-75 font-bold ml-4">✕</button>
         </div>
       )}
 

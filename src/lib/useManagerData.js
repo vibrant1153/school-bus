@@ -74,42 +74,88 @@ export function useManagerData() {
         if (schoolErr) throw schoolErr
 
         // 2. Fetch Students + Guardians + Assigned Stops
-        const { data: studentRows, error: studentErr } = await supabase
-          .from('students')
-          .select(`
+        let studentRows = []
+        const studentSelectWithPhone = `
+          id,
+          full_name,
+          grade,
+          is_active,
+          parent_phone,
+          guardians (
             id,
-            full_name,
-            grade,
-            is_active,
-            parent_phone,
-            guardians (
+            profile_id,
+            relationship,
+            profiles (
+              full_name,
+              phone
+            )
+          ),
+          student_stops (
+            id,
+            direction,
+            stop_id,
+            stops (
               id,
-              profile_id,
-              relationship,
-              profiles (
-                full_name,
-                phone
-              )
-            ),
-            student_stops (
-              id,
-              direction,
-              stop_id,
-              stops (
+              name,
+              route_id,
+              routes (
                 id,
-                name,
-                route_id,
-                routes (
-                  id,
-                  name
-                )
+                name
               )
             )
-          `)
+          )
+        `
+
+        const studentSelectWithoutPhone = `
+          id,
+          full_name,
+          grade,
+          is_active,
+          guardians (
+            id,
+            profile_id,
+            relationship,
+            profiles (
+              full_name,
+              phone
+            )
+          ),
+          student_stops (
+            id,
+            direction,
+            stop_id,
+            stops (
+              id,
+              name,
+              route_id,
+              routes (
+                id,
+                name
+              )
+            )
+          )
+        `
+
+        const { data: sData, error: sErr } = await supabase
+          .from('students')
+          .select(studentSelectWithPhone)
           .eq('school_id', schoolId)
           .order('full_name')
 
-        if (studentErr) throw studentErr
+        if (sErr) {
+          // If parent_phone column does not exist yet (migration pending),
+          // fall back cleanly to querying without parent_phone so manager data loads reliably
+          const { data: fallbackData, error: fallbackErr } = await supabase
+            .from('students')
+            .select(studentSelectWithoutPhone)
+            .eq('school_id', schoolId)
+            .order('full_name')
+
+          if (fallbackErr) throw fallbackErr
+          studentRows = fallbackData || []
+        } else {
+          studentRows = sData || []
+        }
 
         // 2b. Fetch Parent Invites for this school (safe fallback if table pending migration)
         let inviteRows = []
@@ -378,17 +424,31 @@ export function useManagerData() {
       cleanPhone = digits.startsWith('251') && digits.length === 12 ? `+${digits}` : parentPhone.trim()
     }
 
-    const { data, error: insertErr } = await supabase
+    let insertPayload = {
+      school_id: schoolId,
+      full_name: fullName.trim(),
+      grade: Number(grade) || null,
+      parent_phone: cleanPhone,
+      is_active: true,
+    }
+
+    let { data, error: insertErr } = await supabase
       .from('students')
-      .insert({
-        school_id: schoolId,
-        full_name: fullName.trim(),
-        grade: Number(grade) || null,
-        parent_phone: cleanPhone,
-        is_active: true,
-      })
+      .insert(insertPayload)
       .select()
       .single()
+
+    if (insertErr && (insertErr.code === '42703' || insertErr.message?.includes('parent_phone'))) {
+      // Fallback if parent_phone column does not exist yet
+      delete insertPayload.parent_phone
+      const fallbackRes = await supabase
+        .from('students')
+        .insert(insertPayload)
+        .select()
+        .single()
+      data = fallbackRes.data
+      insertErr = fallbackRes.error
+    }
 
     if (insertErr) throw insertErr
 
@@ -498,12 +558,28 @@ export function useManagerData() {
     }
 
     // 1. Insert students in batch into Supabase
-    const { data: insertedStudents, error: insertErr } = await supabase
+    let insertedStudents = []
+    let { data: batchData, error: insertErr } = await supabase
       .from('students')
       .insert(preparedRows)
       .select('id, full_name, parent_phone, school_id')
 
+    if (insertErr && (insertErr.code === '42703' || insertErr.message?.includes('parent_phone'))) {
+      const sanitizedRows = preparedRows.map((r) => {
+        const copy = { ...r }
+        delete copy.parent_phone
+        return copy
+      })
+      const fallbackBatch = await supabase
+        .from('students')
+        .insert(sanitizedRows)
+        .select('id, full_name, school_id')
+      batchData = fallbackBatch.data
+      insertErr = fallbackBatch.error
+    }
+
     if (insertErr) throw insertErr
+    insertedStudents = batchData || []
 
     // 2. Associate stops where provided
     const stopAssignments = []
@@ -786,59 +862,89 @@ export function useManagerData() {
   async function initializeDefaultRoutesAndBuses() {
     if (!schoolId) throw new Error('School ID is missing.')
 
-    // 1. Create Route 1
-    const { data: route1, error: r1Err } = await supabase
+    // 1. Check existing routes for this school to avoid duplicate creation
+    const { data: existingRoutes } = await supabase
       .from('routes')
-      .insert({
-        school_id: schoolId,
-        name: 'Route 1 - Bole & Atlas Line',
-        code: 'RT-01',
-        start_time: '06:45:00',
-        is_active: true,
-      })
-      .select('id')
-      .single()
+      .select('id, name, code')
+      .eq('school_id', schoolId)
 
-    if (r1Err) throw r1Err
+    let route1Id = existingRoutes?.find((r) => r.name?.includes('Bole') || r.code === 'RT-01')?.id
+    let route2Id = existingRoutes?.find((r) => r.name?.includes('CMC') || r.code === 'RT-02')?.id
 
-    // 2. Create Stops for Route 1
-    const stopsR1 = [
-      { school_id: schoolId, route_id: route1.id, name: 'Bole Medhanealem Gate', sequence_morning: 1, lat: 9.0010, lng: 38.7845, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route1.id, name: 'Atlas Hotel Junction', sequence_morning: 2, lat: 9.0125, lng: 38.7750, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route1.id, name: 'Rwanda Embassy Roundabout', sequence_morning: 3, lat: 9.0180, lng: 38.7700, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route1.id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
-    ]
-    const { error: s1Err } = await supabase.from('stops').insert(stopsR1)
-    if (s1Err) throw s1Err
+    // Create Route 1 if not present
+    if (!route1Id) {
+      const { data: route1, error: r1Err } = await supabase
+        .from('routes')
+        .insert({
+          school_id: schoolId,
+          name: 'Route 1 - Bole & Atlas Line',
+          code: 'RT-01',
+          start_time: '06:45:00',
+          is_active: true,
+        })
+        .select('id')
+        .single()
 
-    // 3. Create Route 2
-    const { data: route2, error: r2Err } = await supabase
-      .from('routes')
-      .insert({
-        school_id: schoolId,
-        name: 'Route 2 - CMC & Megenagna Line',
-        code: 'RT-02',
-        start_time: '06:40:00',
-        is_active: true,
-      })
-      .select('id')
-      .single()
+      if (r1Err) throw r1Err
+      route1Id = route1.id
 
-    if (r2Err) throw r2Err
+      const stopsR1 = [
+        { school_id: schoolId, route_id: route1Id, name: 'Bole Medhanealem Gate', sequence_morning: 1, lat: 9.0010, lng: 38.7845, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route1Id, name: 'Atlas Hotel Junction', sequence_morning: 2, lat: 9.0125, lng: 38.7750, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route1Id, name: 'Rwanda Embassy Roundabout', sequence_morning: 3, lat: 9.0180, lng: 38.7700, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route1Id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
+      ]
+      const { error: s1Err } = await supabase.from('stops').insert(stopsR1)
+      if (s1Err) throw s1Err
+    }
 
-    // 4. Create Stops for Route 2
-    const stopsR2 = [
-      { school_id: schoolId, route_id: route2.id, name: 'CMC Michael Square', sequence_morning: 1, lat: 9.0255, lng: 38.8350, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route2.id, name: 'Megenagna Station', sequence_morning: 2, lat: 9.0185, lng: 38.8020, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route2.id, name: 'Signal Intersection', sequence_morning: 3, lat: 9.0220, lng: 38.7800, has_pin: true, is_school: false },
-      { school_id: schoolId, route_id: route2.id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
-    ]
-    const { error: s2Err } = await supabase.from('stops').insert(stopsR2)
-    if (s2Err) throw s2Err
+    // Create Route 2 if not present
+    if (!route2Id) {
+      const { data: route2, error: r2Err } = await supabase
+        .from('routes')
+        .insert({
+          school_id: schoolId,
+          name: 'Route 2 - CMC & Megenagna Line',
+          code: 'RT-02',
+          start_time: '06:40:00',
+          is_active: true,
+        })
+        .select('id')
+        .single()
 
-    // 5. Create Bus 1 if school has no buses yet
-    if (buses.length === 0) {
-      await addBus({ busNumber: '1', plateNumber: '3-ET-1001', capacity: 32 })
+      if (r2Err) throw r2Err
+      route2Id = route2.id
+
+      const stopsR2 = [
+        { school_id: schoolId, route_id: route2Id, name: 'CMC Michael Square', sequence_morning: 1, lat: 9.0255, lng: 38.8350, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route2Id, name: 'Megenagna Station', sequence_morning: 2, lat: 9.0185, lng: 38.8020, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route2Id, name: 'Signal Intersection', sequence_morning: 3, lat: 9.0220, lng: 38.7800, has_pin: true, is_school: false },
+        { school_id: schoolId, route_id: route2Id, name: 'School Main Gate', sequence_morning: 4, lat: 9.0250, lng: 38.7650, has_pin: true, is_school: true },
+      ]
+      const { error: s2Err } = await supabase.from('stops').insert(stopsR2)
+      if (s2Err) throw s2Err
+    }
+
+    // 2. Check if school already has buses in database
+    const { data: existingBuses } = await supabase
+      .from('buses')
+      .select('id, name')
+      .eq('school_id', schoolId)
+
+    if (!existingBuses || existingBuses.length === 0) {
+      // Find a non-conflicting plate number
+      let targetPlate = '3-ET-1001'
+      const { data: plateInUse } = await supabase
+        .from('bus_plates')
+        .select('id')
+        .eq('plate_number', targetPlate)
+        .maybeSingle()
+
+      if (plateInUse) {
+        targetPlate = `3-ET-${Math.floor(1000 + Math.random() * 9000)}`
+      }
+
+      await addBus({ busNumber: '1', plateNumber: targetPlate, capacity: 32 })
     }
 
     setReloadTrigger((v) => v + 1)
