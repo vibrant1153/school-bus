@@ -1119,9 +1119,23 @@ export function useManagerData() {
     return { success: true }
   }
 
-  // Mutation 13c: Reorder Stops
+  // Mutation 13c: Reorder Stops (Instant Optimistic Local State + Supabase Sync)
   async function reorderStops(routeId, orderedStops) {
     if (!routeId || !Array.isArray(orderedStops) || !schoolId) return
+
+    // 1. Instantly update local routes state with 0ms delay (no page reload or flicker)
+    setRoutes((prevRoutes) =>
+      prevRoutes.map((r) => {
+        if (r.id !== routeId) return r
+        const updatedStops = orderedStops.map((st, idx) => ({
+          ...st,
+          sequence_morning: idx + 1,
+        }))
+        return { ...r, stops: updatedStops }
+      })
+    )
+
+    // 2. Persist updated sequence numbers to Supabase in the background
     const updates = orderedStops.map((st, idx) =>
       supabase
         .from('stops')
@@ -1130,7 +1144,6 @@ export function useManagerData() {
         .eq('school_id', schoolId)
     )
     await Promise.all(updates)
-    setReloadTrigger((v) => v + 1)
     return { success: true }
   }
 

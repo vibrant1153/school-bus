@@ -112,12 +112,14 @@ export default function BusesRoutes() {
   const readyBuses = buses.filter((b) => Boolean(b.driverName && b.routeId))
   const needsSetupBuses = buses.filter((b) => !b.driverName || !b.routeId)
 
-  // Auto-expand first bus if none expanded
+  // Auto-expand first bus on initial load only (allows user to collapse/hide details)
+  const hasInitializedExpandRef = useRef(false)
   useEffect(() => {
-    if (buses.length > 0 && expandedBusId === null) {
+    if (!hasInitializedExpandRef.current && buses.length > 0) {
       setExpandedBusId(buses[0].id)
+      hasInitializedExpandRef.current = true
     }
-  }, [buses, expandedBusId])
+  }, [buses])
 
   // Autocomplete suggestions as user types in stop search
   useEffect(() => {
@@ -268,9 +270,9 @@ export default function BusesRoutes() {
 
     try {
       await reorderStops(route.id, stopsList)
-      setToastMsg(`Stop order updated for ${route.name}.`)
     } catch (err) {
-      alert(err.message || 'Failed to reorder stops.')
+      console.error('Failed to reorder stops:', err)
+      setToastMsg(`Error: ${err.message || 'Failed to reorder stops.'}`)
     }
   }
 
@@ -834,7 +836,8 @@ export default function BusesRoutes() {
                                             disabled={sIdx === 0}
                                             onClick={() => handleMoveStop(assignedRoute, sIdx, -1)}
                                             className="h-6 w-6 rounded border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="Move earlier"
+                                            title="Move stop earlier in pickup order"
+                                            aria-label="Move stop earlier in pickup order"
                                           >
                                             ↑
                                           </button>
@@ -843,7 +846,8 @@ export default function BusesRoutes() {
                                             disabled={isFinal}
                                             onClick={() => handleMoveStop(assignedRoute, sIdx, 1)}
                                             className="h-6 w-6 rounded border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="Move later"
+                                            title="Move stop later in pickup order"
+                                            aria-label="Move stop later in pickup order"
                                           >
                                             ↓
                                           </button>
