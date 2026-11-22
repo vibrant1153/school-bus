@@ -825,13 +825,60 @@ export default function Students() {
                           <td className="p-2.5 text-slate-600">{row.grade !== null ? `Grade ${row.grade}` : (row.rawGrade || '—')}</td>
                           <td className="p-2.5 font-mono text-slate-700">{row.parentPhone || <span className="text-slate-400 italic">None</span>}</td>
                           <td className="p-2.5">
-                            {row.matchedStopName ? (
-                              <span className="text-emerald-700 font-medium">✓ {row.matchedStopName}</span>
-                            ) : row.targetStopName ? (
-                              <span className="text-amber-800 text-[11px]">⚠️ {row.targetStopName} (unmatched)</span>
-                            ) : (
-                              <span className="text-slate-400">No stop</span>
-                            )}
+                            <div className="flex flex-col gap-1">
+                              <select
+                                value={row.matchedStopId || ''}
+                                onChange={(e) => {
+                                  const selectedId = e.target.value
+                                  let selectedStopName = null
+                                  routes.forEach((r) => {
+                                    const st = (r.stops || []).find((s) => s.id === selectedId)
+                                    if (st) selectedStopName = st.name
+                                  })
+
+                                  setParsedRoster((prev) => {
+                                    if (!prev) return prev
+                                    const updatedRows = prev.rows.map((r) => {
+                                      if (r.index !== row.index) return r
+                                      const hasName = Boolean(r.fullName)
+                                      return {
+                                        ...r,
+                                        matchedStopId: selectedId || null,
+                                        matchedStopName: selectedStopName,
+                                        status: hasName ? (r.parentPhone ? 'valid' : 'warning') : 'error',
+                                        issues: r.parentPhone ? [] : ['No parent phone'],
+                                      }
+                                    })
+                                    return {
+                                      ...prev,
+                                      rows: updatedRows,
+                                      validCount: updatedRows.filter((r) => r.status === 'valid').length,
+                                      warningCount: updatedRows.filter((r) => r.status === 'warning').length,
+                                      errorCount: updatedRows.filter((r) => r.status === 'error').length,
+                                    }
+                                  })
+                                }}
+                                className="h-8 max-w-[210px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-800 focus:border-[#0D9488] focus:outline-none"
+                              >
+                                <option value="">
+                                  {row.targetStopName && !row.matchedStopId
+                                    ? `⚠️ "${row.targetStopName}" (Assign Stop…)`
+                                    : '— No specific stop —'}
+                                </option>
+                                {routes.map((r) => (
+                                  <optgroup key={r.id} label={r.name}>
+                                    {(r.stops || []).map((st) => (
+                                      <option key={st.id} value={st.id}>
+                                        {st.name} {st.is_school ? '🏫' : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                              {row.targetStopName && !row.matchedStopId && (
+                                <span className="text-[10px] text-amber-700 font-mono">Area: "{row.targetStopName}"</span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-2.5">
                             {row.status === 'valid' ? (

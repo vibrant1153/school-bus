@@ -23,6 +23,8 @@ const ALIASES = {
   stopName: [
     'stop', 'stop name', 'stop_name', 'bus stop', 'bus_stop', 'station',
     'pickup stop', 'pickup_stop', 'dropoff stop', 'ማቆሚያ',
+    'area', 'pickup area', 'pickup_area', 'neighborhood', 'zone', 'location',
+    'address', 'subcity', 'መንደር', 'አካባቢ', 'ሰፈር',
   ],
 }
 
@@ -219,11 +221,39 @@ export async function parseStudentFile(file, routes = []) {
 
     let matchedStop = null
     if (targetStopName && allStops.length > 0) {
+      const cleanTarget = targetStopName.toLowerCase().trim()
+
       // 1. Exact match on stop name
-      matchedStop = allStops.find((st) => st.name.toLowerCase() === targetStopName)
-      // 2. Partial match if not exact
+      matchedStop = allStops.find((st) => st.name.toLowerCase() === cleanTarget)
+
+      // 2. Stop name contains target area (e.g. Stop="Atlas Hotel Junction", Area="Atlas")
       if (!matchedStop) {
-        matchedStop = allStops.find((st) => st.name.toLowerCase().includes(targetStopName))
+        matchedStop = allStops.find((st) => st.name.toLowerCase().includes(cleanTarget))
+      }
+
+      // 3. Target area contains stop name (e.g. Area="Atlas Hotel Junction Gate", Stop="Atlas Hotel")
+      if (!matchedStop) {
+        matchedStop = allStops.find((st) => cleanTarget.includes(st.name.toLowerCase()))
+      }
+
+      // 4. Token / keyword matching (e.g. "Bole", "Atlas", "CMC", "Megenagna", "Kazanchis", "Sarbet", "Piassa", "Rwanda")
+      if (!matchedStop) {
+        const keywords = cleanTarget.split(/[\s,.\-_/]+/).filter((w) => w.length >= 3)
+        for (const kw of keywords) {
+          const match = allStops.find((st) => st.name.toLowerCase().includes(kw))
+          if (match) {
+            matchedStop = match
+            break
+          }
+        }
+      }
+
+      // 5. Match by route name if area indicates route (e.g. "Bole Line" or "Route 1")
+      if (!matchedStop) {
+        const routeMatch = routes.find((r) => r.name.toLowerCase().includes(cleanTarget) || cleanTarget.includes(r.name.toLowerCase()))
+        if (routeMatch && routeMatch.stops?.length > 0) {
+          matchedStop = allStops.find((st) => st.routeId === routeMatch.id)
+        }
       }
     }
 
@@ -288,15 +318,15 @@ export async function parseStudentFile(file, routes = []) {
  * Downloads a sample CSV template for the school manager.
  */
 export function downloadStudentTemplateCsv(routes = []) {
-  const exampleStop = routes[0]?.stops?.[0]?.name || 'Bole Medhanealem Gate'
-  const exampleRoute = routes[0]?.name || 'Route 1'
+  const exampleStop = routes[0]?.stops?.[0]?.name || 'Atlas Hotel Junction'
+  const exampleRoute = routes[0]?.name || 'Route 1 - Bole & Atlas Line'
 
   const csvContent = [
-    'Student Name,Grade,Parent Phone,Route Name,Stop Name',
+    'Student Name,Grade,Parent Phone,Route,Area / Stop',
     `Abebe Bekele,4,0911223344,${exampleRoute},${exampleStop}`,
-    `Sara Hailu,2,+251912345678,${exampleRoute},${exampleStop}`,
-    'Yonas Tadesse,5,0922334455,,',
-    'Hana Girma,Kindergarten,0933445566,,',
+    'Sara Hailu,2,+251912345678,Bole Line,Atlas',
+    'Yonas Tadesse,5,0922334455,Route 1,Bole Medhanealem',
+    'Hana Girma,Kindergarten,0933445566,,CMC Michael',
   ].join('\r\n')
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
