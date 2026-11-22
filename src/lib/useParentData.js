@@ -227,7 +227,7 @@ export function useParentData() {
     return () => {
       ignore = true
     }
-  }, [user])
+  }, [user?.id])
 
   const selectedChild = children.find((c) => c.id === selectedChildId) || children[0] || null
 
@@ -512,7 +512,7 @@ export function useParentData() {
     return () => {
       ignore = true
     }
-  }, [user])
+  }, [user?.id])
 
   // Mutations
   async function reportAbsence({ tripDate, direction, reason }) {

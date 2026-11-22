@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from './supabase.js'
 import { AuthContext } from './authContext.js'
 export function normalizeEthiopianPhone(input) {
@@ -23,6 +23,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(() => Boolean(isSupabaseConfigured))
   const [authError, setAuthError] = useState(null)
 
+  const currentUserIdRef = useRef(null)
+  const currentProfileRef = useRef(null)
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       return
@@ -31,21 +34,39 @@ export function AuthProvider({ children }) {
     // 1. Fetch initial session
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       setSession(initialSession)
-      setUser(initialSession?.user ?? null)
-      if (initialSession?.user) {
-        fetchProfile(initialSession.user.id)
+      const initialUser = initialSession?.user ?? null
+      setUser(initialUser)
+      currentUserIdRef.current = initialUser?.id ?? null
+      if (initialUser) {
+        fetchProfile(initialUser.id)
       } else {
         setLoading(false)
       }
     })
 
     // 2. Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       setSession(currentSession)
-      setUser(currentSession?.user ?? null)
-      if (currentSession?.user) {
-        await fetchProfile(currentSession.user.id)
+
+      // On TOKEN_REFRESHED (which fires on tab switch / window focus), do not re-fetch profile or re-render
+      if (event === 'TOKEN_REFRESHED') {
+        return
+      }
+
+      const nextUser = currentSession?.user ?? null
+      const nextUserId = nextUser?.id ?? null
+
+      if (nextUserId) {
+        // Only re-fetch if user identity actually changed
+        if (currentUserIdRef.current !== nextUserId || !currentProfileRef.current) {
+          currentUserIdRef.current = nextUserId
+          setUser(nextUser)
+          await fetchProfile(nextUserId)
+        }
       } else {
+        currentUserIdRef.current = null
+        currentProfileRef.current = null
+        setUser(null)
         setProfile(null)
         setRole(null)
         setLoading(false)
@@ -69,6 +90,7 @@ export function AuthProvider({ children }) {
         console.error('Failed to load profile:', error?.message)
         await supabase.auth.signOut()
         setAuthError('This account has no profile in SchoolBus Connect. Please contact your administrator.')
+        currentProfileRef.current = null
         setProfile(null)
         setRole(null)
         setUser(null)
@@ -78,12 +100,14 @@ export function AuthProvider({ children }) {
         // Enforce active lifecycle invariant: deactivated profiles cannot maintain an active session
         await supabase.auth.signOut()
         setAuthError('Your account has been deactivated. Please contact your school administrator.')
+        currentProfileRef.current = null
         setProfile(null)
         setRole(null)
         setUser(null)
         setSession(null)
         return null
       } else {
+        currentProfileRef.current = data
         setProfile(data)
         setRole(data.role)
         setAuthError(null)

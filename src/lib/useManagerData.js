@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from './supabase.js'
 import { useAuth } from './useAuth.js'
 import { BUSES as SAMPLE_BUSES, ROUTES as SAMPLE_ROUTES, STUDENTS as SAMPLE_STUDENTS, TRIPS as SAMPLE_TRIPS } from '../manager/managerData.js'
 
 export function useManagerData() {
   const { user, profile } = useAuth()
+  const userId = user?.id
   const schoolId = profile?.school_id
 
   const [school, setSchool] = useState(null)
@@ -19,12 +20,15 @@ export function useManagerData() {
   const [isLiveBackend, setIsLiveBackend] = useState(false)
   const [reloadTrigger, setReloadTrigger] = useState(0)
 
+  // Track if we have performed initial load to prevent blocking spinners on tab switch / window focus
+  const hasLoadedOnceRef = useRef(false)
+
   // 1. Fetch School & Roster Data
   useEffect(() => {
     let ignore = false
 
     async function fetchManagerData() {
-      if (!isSupabaseConfigured || !user || !schoolId) {
+      if (!isSupabaseConfigured || !userId || !schoolId) {
         if (!ignore) {
           setSchool({
             id: '00000000-0000-0000-0000-000000000001',
@@ -62,7 +66,10 @@ export function useManagerData() {
       }
 
       try {
-        setLoading(true)
+        // Only show blocking loading state on the very first mount; never on background tab refocused
+        if (!hasLoadedOnceRef.current) {
+          setLoading(true)
+        }
 
         // 1. Fetch School Info
         const { data: schoolData, error: schoolErr } = await supabase
@@ -377,6 +384,7 @@ export function useManagerData() {
           setTodayTrips(tripRows || [])
           setIsLiveBackend(true)
           setLoading(false)
+          hasLoadedOnceRef.current = true
         }
       } catch (err) {
         if (!ignore) {
@@ -391,7 +399,7 @@ export function useManagerData() {
     return () => {
       ignore = true
     }
-  }, [user, schoolId, reloadTrigger])
+  }, [userId, schoolId, reloadTrigger])
 
   // Mutation 1: Update School Office Contact & Settings (RPC update_school_settings)
   async function updateSchoolSettings({ name, timezone, contactPhone }) {
