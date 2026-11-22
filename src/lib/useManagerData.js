@@ -514,7 +514,27 @@ export function useManagerData() {
       throw new Error(data.error || 'Failed to generate parent invitation link.')
     }
 
-    setReloadTrigger((v) => v + 1)
+    // Optimistically update student state without triggering a disruptive full-page refresh
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id === studentId) {
+          return {
+            ...s,
+            inviteStatus: 'pending',
+            parentPhone: phoneNumber || s.parentPhone,
+            latestInvite: {
+              id: data.invite_id,
+              student_id: studentId,
+              phone_number: phoneNumber,
+              expires_at: data.expires_at,
+              used_at: null,
+              revoked_at: null,
+            },
+          }
+        }
+        return s
+      })
+    )
     return data
   }
 
@@ -541,7 +561,18 @@ export function useManagerData() {
       throw new Error(data.error || 'Failed to revoke invitation.')
     }
 
-    setReloadTrigger((v) => v + 1)
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id === studentId) {
+          return {
+            ...s,
+            inviteStatus: 'none',
+            latestInvite: null,
+          }
+        }
+        return s
+      })
+    )
     return data
   }
 

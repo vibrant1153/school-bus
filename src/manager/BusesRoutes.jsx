@@ -23,6 +23,36 @@ function MapCenterController({ center, zoom = 14 }) {
   return null
 }
 
+// Interactive map wrapper preventing browser full-page zooming on mouse wheel / touchpad pinch
+function InteractiveMapWrapper({ children, className = '' }) {
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleWheel = (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault()
+      }
+      e.stopPropagation()
+    }
+
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
+
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      style={{ touchAction: 'pan-x pan-y', overscrollBehavior: 'contain' }}
+    >
+      {children}
+    </div>
+  )
+}
+
 const INPUT_CLASS = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-xs text-[#172033] placeholder:text-[#94A3B8] focus:border-[#0D9488] focus:ring-1 focus:ring-[#0D9488] focus:outline-none transition-colors'
 
 export default function BusesRoutes() {
@@ -895,12 +925,15 @@ export default function BusesRoutes() {
                           <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider">
                             Route Map Preview
                           </span>
-                          <div className="relative h-56 w-full rounded-lg border border-[#E2E8F0] overflow-hidden bg-slate-100">
+                          <InteractiveMapWrapper className="relative h-56 w-full rounded-lg border border-[#E2E8F0] overflow-hidden bg-slate-100">
                             {stopPoints.length > 0 ? (
                               <MapContainer
                                 center={mapCenter}
                                 zoom={13}
-                                zoomControl={false}
+                                zoomControl={true}
+                                scrollWheelZoom={true}
+                                doubleClickZoom={true}
+                                touchZoom={true}
                                 className="h-full w-full"
                               >
                                 <MapCenterController center={mapCenter} zoom={13} />
@@ -937,7 +970,7 @@ export default function BusesRoutes() {
                                 Map preview available once stops are added.
                               </div>
                             )}
-                          </div>
+                          </InteractiveMapWrapper>
                         </div>
                       </div>
                     </div>
@@ -1535,11 +1568,14 @@ export default function BusesRoutes() {
                 </div>
 
                 {/* Leaflet Pin Map */}
-                <div className="h-52 w-full rounded-lg border border-[#E2E8F0] overflow-hidden relative">
+                <InteractiveMapWrapper className="h-52 w-full rounded-lg border border-[#E2E8F0] overflow-hidden relative">
                   <MapContainer
                     center={selectedCoords}
                     zoom={15}
-                    zoomControl={false}
+                    zoomControl={true}
+                    scrollWheelZoom={true}
+                    doubleClickZoom={true}
+                    touchZoom={true}
                     className="h-full w-full"
                   >
                     <MapCenterController center={selectedCoords} zoom={15} />
@@ -1564,7 +1600,7 @@ export default function BusesRoutes() {
                       </Tooltip>
                     </Marker>
                   </MapContainer>
-                </div>
+                </InteractiveMapWrapper>
                 <p className="text-[11px] text-[#64748B] italic">
                   Drag the pin on the map to adjust the exact pickup gate entrance if necessary.
                 </p>

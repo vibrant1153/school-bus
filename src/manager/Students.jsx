@@ -28,6 +28,37 @@ function MapFitBounds({ stops }) {
   return null
 }
 
+// Interactive map wrapper preventing browser full-page zooming on mouse wheel / touchpad pinch
+function InteractiveMapWrapper({ children, className = '' }) {
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleWheel = (e) => {
+      // Prevent browser page zoom (Ctrl+wheel / pinch-to-zoom on Windows) from escaping map
+      if (e.ctrlKey) {
+        e.preventDefault()
+      }
+      e.stopPropagation()
+    }
+
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
+
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      style={{ touchAction: 'pan-x pan-y', overscrollBehavior: 'contain' }}
+    >
+      {children}
+    </div>
+  )
+}
+
 // Custom styled stop marker for student stop assignment
 function createStudentStopIcon(index, isSelected, isSchool) {
   const size = isSelected ? 34 : 26
@@ -195,16 +226,21 @@ export default function Students() {
     setTimeout(() => setCopiedBatchInvites(false), 3000)
   }
 
+  // Cache of session generated invitation links { [studentId]: { url, token, phoneNumber, expiresAt } }
+  const [generatedInvitesCache, setGeneratedInvitesCache] = useState({})
+
   // 2. Open Invite Modal for a student
   function openInviteModal(student) {
     setInviteModalStudent(student)
     setInvitePhoneNumber(student.parentPhone || '')
-    setInviteLinkData(null)
     setInviteError(null)
     setCopiedLink(false)
 
-    if (student.parentPhone) {
-      handleGenerateInvite(student, student.parentPhone)
+    // If an invitation link was already generated for this student in this session, show it directly
+    if (generatedInvitesCache[student.id]) {
+      setInviteLinkData(generatedInvitesCache[student.id])
+    } else {
+      setInviteLinkData(null)
     }
   }
 
@@ -231,14 +267,20 @@ export default function Students() {
       const origin = window.location.origin
       const inviteUrl = `${origin}/invite/${res.token}`
 
-      setInviteLinkData({
+      const linkPayload = {
         url: inviteUrl,
         token: res.token,
         phoneNumber: res.phone_number,
         expiresAt: res.expires_at,
         studentName: targetStudent.fullName,
-      })
+      }
+
+      setInviteLinkData(linkPayload)
       setInvitePhoneNumber(res.phone_number)
+      setGeneratedInvitesCache((prev) => ({
+        ...prev,
+        [targetStudent.id]: linkPayload,
+      }))
       setToastMessage(`Generated single-use invite for ${targetStudent.fullName}!`)
     } catch (err) {
       console.error('Failed to generate invite:', err)
@@ -260,6 +302,11 @@ export default function Students() {
         inviteId: inviteModalStudent.latestInvite?.id,
       })
       setInviteLinkData(null)
+      setGeneratedInvitesCache((prev) => {
+        const copy = { ...prev }
+        delete copy[inviteModalStudent.id]
+        return copy
+      })
       setToastMessage(`Revoked invitation for ${inviteModalStudent.fullName}.`)
       setInviteModalStudent(null)
     } catch (err) {
@@ -280,15 +327,25 @@ export default function Students() {
 
   function shareWhatsApp() {
     if (!inviteLinkData?.url || !inviteModalStudent) return
-    const msg = `Hello! You are invited to connect to SchoolBus Connect to track ${inviteModalStudent.fullName}'s school bus live.\n\nPlease open this link to create your account and connect to your child:\n${inviteLinkData.url}\n\n(This secure link is single-use and expires in 72 hours.)`
+    const studentName = inviteModalStudent.fullName || 'your child'
+    const msg = `Hello! You are invited to connect to SchoolBus Connect to track ${studentName}'s school bus live.\n\nPlease open this link to create your account and connect to your child:\n${inviteLinkData.url}\n\n(This secure link is single-use and expires in 72 hours.)`
     const digits = (inviteLinkData.phoneNumber || '').replace(/\D/g, '')
     const waUrl = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`
     window.open(waUrl, '_blank')
   }
 
+  function shareTelegram() {
+    if (!inviteLinkData?.url || !inviteModalStudent) return
+    const studentName = inviteModalStudent.fullName || 'your child'
+    const msg = `Hello! You are invited to connect to SchoolBus Connect to track ${studentName}'s school bus live.\n\nPlease open this link to register and connect:\n${inviteLinkData.url}\n\n(This secure link is single-use and expires in 72 hours.)`
+    const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLinkData.url)}&text=${encodeURIComponent(msg)}`
+    window.open(tgUrl, '_blank')
+  }
+
   function shareSMS() {
     if (!inviteLinkData?.url || !inviteModalStudent) return
-    const msg = `SchoolBus Connect: Track ${inviteModalStudent.fullName}'s bus live. Open link to register: ${inviteLinkData.url}`
+    const studentName = inviteModalStudent.fullName || 'your child'
+    const msg = `SchoolBus Connect: Track ${studentName}'s bus live. Open link to register: ${inviteLinkData.url}`
     const digits = (inviteLinkData.phoneNumber || '').replace(/\D/g, '')
     const smsUrl = `sms:${digits}?body=${encodeURIComponent(msg)}`
     window.location.href = smsUrl
@@ -1272,22 +1329,33 @@ export default function Students() {
                   <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
                     Share directly with parent:
                   </span>
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={shareWhatsApp}
-                      className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-xs"
+                      className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#25D366] px-3 py-2.5 text-xs font-black text-white hover:bg-[#20bd5a] active:scale-95 transition-all shadow-xs"
+                      title="Share link via WhatsApp"
                     >
-                      <span>💬</span>
+                      <span className="text-sm">💬</span>
                       <span>WhatsApp</span>
                     </button>
                     <button
                       type="button"
-                      onClick={shareSMS}
-                      className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 active:scale-95 transition-all shadow-xs"
+                      onClick={shareTelegram}
+                      className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#229ED9] px-3 py-2.5 text-xs font-black text-white hover:bg-[#1d8bc0] active:scale-95 transition-all shadow-xs"
+                      title="Share link via Telegram"
                     >
-                      <span>📱</span>
-                      <span>Send SMS</span>
+                      <span className="text-sm">✈️</span>
+                      <span>Telegram</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={shareSMS}
+                      className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#1D3557] px-3 py-2.5 text-xs font-black text-white hover:bg-[#152741] active:scale-95 transition-all shadow-xs"
+                      title="Send link via SMS"
+                    >
+                      <span className="text-sm">📱</span>
+                      <span>SMS</span>
                     </button>
                   </div>
                 </div>
@@ -1402,12 +1470,15 @@ export default function Students() {
                     </div>
 
                     {validCoordsStops.length > 0 ? (
-                      <div className="relative h-60 w-full overflow-hidden rounded-2xl border border-slate-200 shadow-inner">
+                      <InteractiveMapWrapper className="relative h-60 w-full overflow-hidden rounded-2xl border border-slate-200 shadow-inner">
                         <MapContainer
                           center={[validCoordsStops[0].lat, validCoordsStops[0].lng]}
                           zoom={14}
+                          zoomControl={true}
+                          scrollWheelZoom={true}
+                          doubleClickZoom={true}
+                          touchZoom={true}
                           className="h-full w-full"
-                          scrollWheelZoom={false}
                         >
                           <TileLayer
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -1459,9 +1530,9 @@ export default function Students() {
 
                         {/* Map Overlay helper badge */}
                         <div className="absolute bottom-2 left-2 z-[400] bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-xl text-[10px] font-bold text-slate-700 shadow-xs border border-slate-200 flex items-center gap-1.5">
-                          <span>💡 Click any pin on the map to choose the stop</span>
+                          <span>💡 Click any pin to select • Use + / - or mouse wheel to zoom map</span>
                         </div>
-                      </div>
+                      </InteractiveMapWrapper>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center text-xs text-amber-800">
                         No map coordinates configured for stops on this route yet.
