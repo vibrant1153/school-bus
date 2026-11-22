@@ -1,10 +1,65 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { useManagerData } from '../lib/useManagerData.js'
 import {
   parseStudentFile,
   downloadStudentTemplateCsv,
   downloadInvitesCsv,
 } from '../lib/fileParser.js'
+
+// Helper to fit map bounds to stops
+function MapFitBounds({ stops }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!stops || stops.length === 0) return
+    const valid = stops
+      .filter((s) => s.lat != null && s.lng != null && !isNaN(Number(s.lat)) && !isNaN(Number(s.lng)))
+      .map((s) => [Number(s.lat), Number(s.lng)])
+
+    if (valid.length === 0) return
+    if (valid.length === 1) {
+      map.flyTo(valid[0], 15, { duration: 0.5 })
+    } else {
+      map.fitBounds(valid, { padding: [36, 36], maxZoom: 16 })
+    }
+  }, [stops, map])
+  return null
+}
+
+// Custom styled stop marker for student stop assignment
+function createStudentStopIcon(index, isSelected, isSchool) {
+  const size = isSelected ? 34 : 26
+  const bg = isSelected ? '#0D9488' : isSchool ? '#1D3557' : '#FFFFFF'
+  const textColor = isSelected ? '#FFFFFF' : isSchool ? '#FFFFFF' : '#0F172A'
+  const border = isSelected ? '3px solid #14B8A6' : isSchool ? '2px solid #FFFFFF' : '2px solid #0D9488'
+  const shadow = isSelected ? '0 4px 14px rgba(13,148,136,0.6)' : '0 2px 6px rgba(0,0,0,0.25)'
+  const label = isSchool ? '🏫' : (index + 1)
+
+  return L.divIcon({
+    className: 'student-stop-pin',
+    html: `<div style="
+      width: ${size}px;
+      height: ${size}px;
+      background: ${bg};
+      color: ${textColor};
+      border: ${border};
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: ${isSelected ? 13 : 11}px;
+      box-shadow: ${shadow};
+      cursor: pointer;
+      transition: all 0.2s ease;
+      ${isSelected ? 'transform: scale(1.15);' : ''}
+    ">${label}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  })
+}
 
 const FIELD = 'h-10 rounded-lg border border-[#E2E8F0] bg-white px-3 text-xs text-[#172033] focus:border-[#0D9488] focus:ring-1 focus:ring-[#0D9488] focus:outline-none transition-colors'
 
@@ -1260,100 +1315,226 @@ export default function Students() {
         </div>
       )}
 
-      {/* Assign Stop Modal */}
-      {studentToAssignStop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md">
-          <div className="card-3d w-full max-w-md rounded-3xl p-6 shadow-2xl border border-white/90">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-lg shadow-2xs">
-                  🚌
-                </span>
-                <div>
-                  <h3 className="text-base font-black text-slate-900">Assign Bus Route &amp; Stop</h3>
-                  <p className="text-xs text-slate-500 font-semibold">{studentToAssignStop.fullName}</p>
+      {/* Assign Stop Modal with Interactive Map Pin Selector */}
+      {studentToAssignStop && (() => {
+        const selectedRoute = routes.find((r) => r.id === assignRouteId)
+        const stopsList = selectedRoute?.stops || []
+        const validCoordsStops = stopsList.filter(
+          (s) => s.lat != null && s.lng != null && !isNaN(Number(s.lat)) && !isNaN(Number(s.lng))
+        )
+        const polylineCoords = validCoordsStops.map((s) => [Number(s.lat), Number(s.lng)])
+        const selectedStopObj = stopsList.find((s) => s.id === assignStopId)
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-md overflow-y-auto">
+            <div className="card-3d w-full max-w-xl rounded-3xl p-6 shadow-2xl border border-white/90 my-auto">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#0D9488]/10 text-lg shadow-2xs">
+                    🚌
+                  </span>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900">Assign Bus Route &amp; Stop</h3>
+                    <p className="text-xs text-slate-500 font-semibold">
+                      {studentToAssignStop.fullName} {studentToAssignStop.grade !== null && `(Grade ${studentToAssignStop.grade})`}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStudentToAssignStop(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
-              >
-                ✕
-              </button>
-            </div>
-
-            {stopError && (
-              <div className="mt-3.5 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
-                ✕ {stopError}
-              </div>
-            )}
-
-            {stopSuccess && (
-              <div className="mt-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-xs font-bold text-emerald-800">
-                {stopSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveStop} className="mt-4 flex flex-col gap-4">
-              <div>
-                <label className="text-xs font-extrabold text-slate-800">Bus Route</label>
-                <select
-                  value={assignRouteId}
-                  onChange={(e) => {
-                    setAssignRouteId(e.target.value)
-                    setAssignStopId('')
-                  }}
-                  className="mt-1 w-full rounded-2xl border border-field bg-white p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
-                >
-                  <option value="">Choose a route…</option>
-                  {routes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name} ({r.code || 'Route'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-extrabold text-slate-800">Assigned Bus Stop</label>
-                <select
-                  value={assignStopId}
-                  onChange={(e) => setAssignStopId(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-field bg-white p-3 text-sm font-medium text-slate-900 focus:border-amber focus:outline-none"
-                >
-                  <option value="">Choose pickup/drop-off stop…</option>
-                  {(routes.find((r) => r.id === assignRouteId)?.stops || []).map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name} {st.is_school ? '(School Campus)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[11px] text-slate-500 font-medium">
-                  Used for morning pickup and afternoon drop-off location tracking.
-                </p>
-              </div>
-
-              <div className="mt-3 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setStudentToAssignStop(null)}
-                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold active:scale-95 transition-all"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingStop || !assignStopId}
-                  className="btn-3d-amber rounded-2xl px-5 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"
-                >
-                  {savingStop ? 'Saving…' : 'Save Stop Assignment'}
+                  ✕
                 </button>
               </div>
-            </form>
+
+              {stopError && (
+                <div className="mt-3.5 rounded-2xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">
+                  ✕ {stopError}
+                </div>
+              )}
+
+              {stopSuccess && (
+                <div className="mt-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-xs font-bold text-emerald-800">
+                  {stopSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveStop} className="mt-4 flex flex-col gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-extrabold text-slate-800">Select Bus Route</label>
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      {routes.length} available routes
+                    </span>
+                  </div>
+                  <select
+                    value={assignRouteId}
+                    onChange={(e) => {
+                      setAssignRouteId(e.target.value)
+                      setAssignStopId('')
+                    }}
+                    className="w-full rounded-2xl border border-field bg-white p-2.5 text-xs font-bold text-slate-900 focus:border-[#0D9488] focus:outline-none"
+                  >
+                    <option value="">Choose a route…</option>
+                    {routes.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.stops?.length || 0} stops)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Interactive Route Map with Clickable Stop Pins */}
+                {assignRouteId && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                        <span>📍 Point &amp; Pick Stop on Map</span>
+                        <span className="text-[10px] bg-teal-50 text-[#0D9488] border border-teal-200 px-2 py-0.5 rounded-full font-bold">
+                          Click pin to select
+                        </span>
+                      </label>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {stopsList.length} stops on this route
+                      </span>
+                    </div>
+
+                    {validCoordsStops.length > 0 ? (
+                      <div className="relative h-60 w-full overflow-hidden rounded-2xl border border-slate-200 shadow-inner">
+                        <MapContainer
+                          center={[validCoordsStops[0].lat, validCoordsStops[0].lng]}
+                          zoom={14}
+                          className="h-full w-full"
+                          scrollWheelZoom={false}
+                        >
+                          <TileLayer
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          />
+                          <MapFitBounds stops={validCoordsStops} />
+
+                          {/* Route Path Polyline */}
+                          {polylineCoords.length > 1 && (
+                            <Polyline
+                              positions={polylineCoords}
+                              pathOptions={{
+                                color: '#0D9488',
+                                weight: 4,
+                                dashArray: '6, 8',
+                                opacity: 0.8,
+                              }}
+                            />
+                          )}
+
+                          {/* Clickable Stop Markers */}
+                          {validCoordsStops.map((st, idx) => {
+                            const isSelected = st.id === assignStopId
+                            return (
+                              <Marker
+                                key={st.id}
+                                position={[st.lat, st.lng]}
+                                icon={createStudentStopIcon(idx, isSelected, st.is_school)}
+                                eventHandlers={{
+                                  click: () => {
+                                    setAssignStopId(st.id)
+                                    setStopError('')
+                                  },
+                                }}
+                              >
+                                <Tooltip
+                                  permanent={isSelected}
+                                  direction="top"
+                                  offset={[0, -14]}
+                                >
+                                  <span className="font-bold text-xs text-slate-900">
+                                    {idx + 1}. {st.name} {st.is_school ? '🏫' : ''}
+                                  </span>
+                                </Tooltip>
+                              </Marker>
+                            )
+                          })}
+                        </MapContainer>
+
+                        {/* Map Overlay helper badge */}
+                        <div className="absolute bottom-2 left-2 z-[400] bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-xl text-[10px] font-bold text-slate-700 shadow-xs border border-slate-200 flex items-center gap-1.5">
+                          <span>💡 Click any pin on the map to choose the stop</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center text-xs text-amber-800">
+                        No map coordinates configured for stops on this route yet.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Assigned Bus Stop Selector and Highlight Card */}
+                <div>
+                  <label className="text-xs font-extrabold text-slate-800">Assigned Bus Stop</label>
+                  <select
+                    value={assignStopId}
+                    onChange={(e) => {
+                      setAssignStopId(e.target.value)
+                      setStopError('')
+                    }}
+                    className="mt-1 w-full rounded-2xl border border-field bg-white p-2.5 text-xs font-bold text-slate-900 focus:border-[#0D9488] focus:outline-none"
+                  >
+                    <option value="">Choose pickup/drop-off stop…</option>
+                    {stopsList.map((st, idx) => (
+                      <option key={st.id} value={st.id}>
+                        Stop {idx + 1}: {st.name} {st.is_school ? '(School Campus)' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Highlight card for selected stop */}
+                  {selectedStopObj ? (
+                    <div className="mt-2.5 flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50/70 p-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0D9488] text-white text-xs font-black shadow-xs">
+                        {stopsList.findIndex((s) => s.id === selectedStopObj.id) + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-teal-950 truncate">
+                          {selectedStopObj.name} {selectedStopObj.is_school ? '🏫' : ''}
+                        </div>
+                        <div className="text-[11px] text-teal-800 font-medium">
+                          Assigned for Morning Pickup &amp; Afternoon Drop-off
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-bold text-[#0D9488] bg-teal-100/80 px-2 py-0.5 rounded-full">
+                        Selected ✓
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-slate-500 font-medium">
+                      Select a stop by pointing on the map above or choosing from the dropdown.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 flex justify-end gap-3 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setStudentToAssignStop(null)}
+                    className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingStop || !assignStopId}
+                    className="btn-3d-amber rounded-2xl px-5 py-2 text-xs font-black text-slate-950 disabled:opacity-50"
+                  >
+                    {savingStop ? 'Saving…' : 'Save Stop Assignment'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Delete Student Confirmation Modal */}
       {studentToDelete && (

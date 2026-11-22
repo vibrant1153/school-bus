@@ -157,16 +157,37 @@ export function useManagerData() {
           studentRows = sData || []
         }
 
-        // 2b. Fetch Parent Invites for this school (safe fallback if table pending migration)
+        // 2b. Fetch Parent Invites for this school (safe fallback if table pending migration or RLS restricted)
         let inviteRows = []
         try {
-          const { data: invites, error: inviteErr } = await supabase
-            .from('parent_invites')
-            .select('id, student_id, phone_number, expires_at, used_at, revoked_at, created_at')
-            .eq('school_id', schoolId)
-            .order('created_at', { ascending: false })
-          if (!inviteErr && invites) {
-            inviteRows = invites
+          // Attempt 1: Fetch via secure backend endpoint (bypasses direct Postgres table permission issues)
+          const session = (await supabase.auth.getSession())?.data?.session
+          if (session?.access_token) {
+            try {
+              const res = await fetch('/api/list-invites', {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              })
+              if (res.ok) {
+                const data = await res.json()
+                if (Array.isArray(data?.invites)) {
+                  inviteRows = data.invites
+                }
+              }
+            } catch {
+              // API endpoint might be offline in local preview
+            }
+          }
+
+          // Attempt 2: Fallback to direct client query if API didn't return rows
+          if (inviteRows.length === 0) {
+            const { data: invites, error: inviteErr } = await supabase
+              .from('parent_invites')
+              .select('id, student_id, phone_number, expires_at, used_at, revoked_at, created_at')
+              .eq('school_id', schoolId)
+              .order('created_at', { ascending: false })
+            if (!inviteErr && invites) {
+              inviteRows = invites
+            }
           }
         } catch {
           // Table might not exist yet or offline
