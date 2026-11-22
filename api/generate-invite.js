@@ -63,16 +63,32 @@ export default async function handler(req, res) {
     }
 
     // 3. Verify student belongs to manager's school
-    const studentQuery = adminSupabase
+    let studentQuery = adminSupabase
       .from('students')
       .select('id, school_id, full_name, parent_phone')
       .eq('id', student_id)
 
     if (callerProfile.role === 'manager') {
-      studentQuery.eq('school_id', callerProfile.school_id)
+      studentQuery = studentQuery.eq('school_id', callerProfile.school_id)
     }
 
-    const { data: student, error: studentErr } = await studentQuery.single()
+    let { data: student, error: studentErr } = await studentQuery.single()
+
+    // Fallback if parent_phone column does not exist yet (migration pending)
+    if (studentErr && (studentErr.code === '42703' || studentErr.message?.includes('parent_phone'))) {
+      let fallbackQuery = adminSupabase
+        .from('students')
+        .select('id, school_id, full_name')
+        .eq('id', student_id)
+
+      if (callerProfile.role === 'manager') {
+        fallbackQuery = fallbackQuery.eq('school_id', callerProfile.school_id)
+      }
+      const fallbackRes = await fallbackQuery.single()
+      student = fallbackRes.data
+      studentErr = fallbackRes.error
+    }
+
     if (studentErr || !student) {
       return res.status(404).json({ error: 'Student not found in your school.' })
     }
@@ -93,21 +109,25 @@ export default async function handler(req, res) {
     }
     const cleanPhone = digits.startsWith('251') && digits.length === 12 ? `+${digits}` : targetPhone
 
-    // Update student.parent_phone if empty
+    // Update student.parent_phone if empty (ignoring if column pending migration)
     if (!student.parent_phone) {
-      await adminSupabase
-        .from('students')
-        .update({ parent_phone: cleanPhone })
-        .eq('id', student.id)
+      try {
+        await adminSupabase
+          .from('students')
+          .update({ parent_phone: cleanPhone })
+          .eq('id', student.id)
+      } catch {}
     }
 
     // 4. Revoke previous unused pending invites for this student
-    await adminSupabase
-      .from('parent_invites')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('student_id', student.id)
-      .is('used_at', null)
-      .is('revoked_at', null)
+    try {
+      await adminSupabase
+        .from('parent_invites')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('student_id', student.id)
+        .is('used_at', null)
+        .is('revoked_at', null)
+    } catch {}
 
     // 5. Generate cryptographically secure random token (32 bytes = 64 hex characters)
     const rawToken = crypto.randomBytes(32).toString('hex')
@@ -123,6 +143,21 @@ export default async function handler(req, res) {
         student_id: student.id,
         phone_number: cleanPhone,
         token_hash: tokenHash,
+        expires_at: expiresAt,
+        created_by: callerProfile.id,
+      })
+      .select('id, expires_at')
+      .single()
+
+    if (insertErr) {
+      console.error('Invite insert error:', insertErr)
+      if (insertErr.code === 'PGRST205' || insertErr.message?.includes('parent_invites')) {
+        return res.status(500).json({
+          error: 'The parent_invites database table is missing. Please run the migration script in your Supabase SQL Editor: supabase/migrations/20261121000001_parent_invitations_and_linking.sql'
+        })
+      }
+      return res.status(500).json({ error: 'Failed to record parent invitation in database.' })
+    }
         expires_at: expiresAt,
         created_by: callerProfile.id,
       })
