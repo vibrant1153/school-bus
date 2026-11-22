@@ -156,17 +156,7 @@ export default async function handler(req, res) {
           error: 'The parent_invites database table is missing. Please run the migration script in your Supabase SQL Editor: supabase/migrations/20261121000001_parent_invitations_and_linking.sql'
         })
       }
-      return res.status(500).json({ error: 'Failed to record parent invitation in database.' })
-    }
-        expires_at: expiresAt,
-        created_by: callerProfile.id,
-      })
-      .select('id, student_id, phone_number, expires_at, created_at')
-      .single()
-
-    if (insertErr) {
-      console.error('Error inserting parent_invite:', insertErr)
-      return res.status(500).json({ error: 'Failed to create invitation: ' + insertErr.message })
+      return res.status(500).json({ error: 'Failed to record parent invitation in database: ' + insertErr.message })
     }
 
     return res.status(200).json({
