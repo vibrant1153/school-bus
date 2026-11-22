@@ -182,6 +182,21 @@ export default function Students() {
     }
   }
 
+  function handleLoadDemoRoster() {
+    const demoCsvText = [
+      'Student Name,Grade,Parent Phone,Route,Area / Stop',
+      'Abebe Bekele,4,0911223344,Route 1 - Bole & Atlas Line,Bole Medhanealem Gate',
+      'Sara Hailu,2,0912345678,Route 1 - Bole & Atlas Line,Atlas Hotel Junction',
+      'Yonas Tadesse,5,0922334455,Route 1 - Bole & Atlas Line,Rwanda Embassy Roundabout',
+      'Hana Girma,3,0933445566,Route 1 - Bole & Atlas Line,Bole Medhanealem',
+      'Dawit Alemayehu,1,0944556677,Route 1 - Bole & Atlas Line,Atlas',
+      'Lydia Tesfaye,6,0955667788,Route 1 - Bole & Atlas Line,Kazanchis',
+    ].join('\r\n')
+
+    const demoFile = new File([demoCsvText], 'demo_students_roster.csv', { type: 'text/csv' })
+    handleFileSelect(demoFile)
+  }
+
   async function handleExecuteBulkImport() {
     if (!parsedRoster || parsedRoster.rows.length === 0) return
     setImportingBatch(true)
@@ -853,18 +868,27 @@ export default function Students() {
                 {/* Sample Template & Help */}
                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-xs font-black text-slate-800">Need a format template?</h4>
+                    <h4 className="text-xs font-black text-slate-800">Quick Test or Format Template</h4>
                     <p className="text-[11px] text-slate-500 font-medium">
-                      Download our ready-to-use CSV template pre-filled with column headers and examples.
+                      Load our prepared demo roster to test in 1-click, or download the blank template.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => downloadStudentTemplateCsv(routes)}
-                    className="btn-3d-subtle rounded-xl px-3.5 py-2 text-xs font-black text-slate-900"
-                  >
-                    📥 Download CSV Template
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadDemoRoster}
+                      className="btn-3d-amber rounded-xl px-3.5 py-2 text-xs font-black text-slate-950 shadow-xs"
+                    >
+                      ⚡ Load Demo Roster (1-Click Test)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadStudentTemplateCsv(routes)}
+                      className="btn-3d-subtle rounded-xl px-3.5 py-2 text-xs font-black text-slate-900"
+                    >
+                      📥 Download CSV Template
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -898,114 +922,143 @@ export default function Students() {
                   </div>
                 </div>
 
-                {/* Option: Auto Generate Invites */}
-                <label className="flex items-center gap-2.5 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoGenInvites}
-                    onChange={(e) => setAutoGenInvites(e.target.checked)}
-                    className="h-4 w-4 rounded accent-amber-500 cursor-pointer"
-                  />
-                  <div className="text-xs">
-                    <span className="font-extrabold text-amber-950">
-                      Automatically generate parent invitation links
-                    </span>
-                    <p className="text-[11px] text-amber-900/80 font-medium">
-                      Creates 1-click single-use invitation links for all students with parent phone numbers.
+                {/* If 0 rows detected in file (e.g. non-CSV file selected) */}
+                {parsedRoster.rows.length === 0 ? (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50/90 p-5 text-center flex flex-col items-center gap-2.5">
+                    <span className="text-3xl">⚠️</span>
+                    <h4 className="text-sm font-black text-amber-950">No Student Records Detected in &quot;{bulkFile?.name}&quot;</h4>
+                    <p className="text-xs text-amber-900 font-medium max-w-md leading-relaxed">
+                      This file does not have student columns. It looks like a markdown documentation file (<strong>.md</strong>) was uploaded instead of a CSV student roster.
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={handleLoadDemoRoster}
+                        className="btn-3d-amber rounded-xl px-4 py-2.5 text-xs font-black text-slate-950 shadow-xs"
+                      >
+                        ⚡ Load Demo Roster (6 Students)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setBulkFile(null); setParsedRoster(null) }}
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Browse for .CSV File
+                      </button>
+                    </div>
                   </div>
-                </label>
+                ) : (
+                  <>
+                    {/* Option: Auto Generate Invites */}
+                    <label className="flex items-center gap-2.5 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoGenInvites}
+                        onChange={(e) => setAutoGenInvites(e.target.checked)}
+                        className="h-4 w-4 rounded accent-amber-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-extrabold text-amber-950">
+                          Automatically generate parent invitation links
+                        </span>
+                        <p className="text-[11px] text-amber-900/80 font-medium">
+                          Creates 1-click single-use invitation links for all students with parent phone numbers.
+                        </p>
+                      </div>
+                    </label>
 
-                {/* Preview Table */}
-                <div className="overflow-x-auto rounded-2xl border border-slate-200 max-h-60 overflow-y-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="sticky top-0 bg-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                      <tr>
-                        <th className="p-2.5">#</th>
-                        <th className="p-2.5">Student Name</th>
-                        <th className="p-2.5">Grade</th>
-                        <th className="p-2.5">Parent Phone</th>
-                        <th className="p-2.5">Bus Stop</th>
-                        <th className="p-2.5">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {parsedRoster.rows.map((row) => (
-                        <tr key={row.index} className={row.status === 'error' ? 'bg-red-50/50' : ''}>
-                          <td className="p-2.5 text-slate-400 font-mono text-[10px]">{row.index}</td>
-                          <td className="p-2.5 font-bold text-slate-900">{row.fullName || <span className="text-red-500 italic">Missing Name</span>}</td>
-                          <td className="p-2.5 text-slate-600">{row.grade !== null ? `Grade ${row.grade}` : (row.rawGrade || '—')}</td>
-                          <td className="p-2.5 font-mono text-slate-700">{row.parentPhone || <span className="text-slate-400 italic">None</span>}</td>
-                          <td className="p-2.5">
-                            <div className="flex flex-col gap-1">
-                              <select
-                                value={row.matchedStopId || ''}
-                                onChange={(e) => {
-                                  const selectedId = e.target.value
-                                  let selectedStopName = null
-                                  routes.forEach((r) => {
-                                    const st = (r.stops || []).find((s) => s.id === selectedId)
-                                    if (st) selectedStopName = st.name
-                                  })
+                    {/* Preview Table */}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200 max-h-60 overflow-y-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="sticky top-0 bg-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                          <tr>
+                            <th className="p-2.5">#</th>
+                            <th className="p-2.5">Student Name</th>
+                            <th className="p-2.5">Grade</th>
+                            <th className="p-2.5">Parent Phone</th>
+                            <th className="p-2.5">Bus Stop</th>
+                            <th className="p-2.5">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {parsedRoster.rows.map((row) => (
+                            <tr key={row.index} className={row.status === 'error' ? 'bg-red-50/50' : ''}>
+                              <td className="p-2.5 text-slate-400 font-mono text-[10px]">{row.index}</td>
+                              <td className="p-2.5 font-bold text-slate-900">{row.fullName || <span className="text-red-500 italic">Missing Name</span>}</td>
+                              <td className="p-2.5 text-slate-600">{row.grade !== null ? `Grade ${row.grade}` : (row.rawGrade || '—')}</td>
+                              <td className="p-2.5 font-mono text-slate-700">{row.parentPhone || <span className="text-slate-400 italic">None</span>}</td>
+                              <td className="p-2.5">
+                                <div className="flex flex-col gap-1">
+                                  <select
+                                    value={row.matchedStopId || ''}
+                                    onChange={(e) => {
+                                      const selectedId = e.target.value
+                                      let selectedStopName = null
+                                      routes.forEach((r) => {
+                                        const st = (r.stops || []).find((s) => s.id === selectedId)
+                                        if (st) selectedStopName = st.name
+                                      })
 
-                                  setParsedRoster((prev) => {
-                                    if (!prev) return prev
-                                    const updatedRows = prev.rows.map((r) => {
-                                      if (r.index !== row.index) return r
-                                      const hasName = Boolean(r.fullName)
-                                      return {
-                                        ...r,
-                                        matchedStopId: selectedId || null,
-                                        matchedStopName: selectedStopName,
-                                        status: hasName ? (r.parentPhone ? 'valid' : 'warning') : 'error',
-                                        issues: r.parentPhone ? [] : ['No parent phone'],
-                                      }
-                                    })
-                                    return {
-                                      ...prev,
-                                      rows: updatedRows,
-                                      validCount: updatedRows.filter((r) => r.status === 'valid').length,
-                                      warningCount: updatedRows.filter((r) => r.status === 'warning').length,
-                                      errorCount: updatedRows.filter((r) => r.status === 'error').length,
-                                    }
-                                  })
-                                }}
-                                className="h-8 max-w-[210px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-800 focus:border-[#0D9488] focus:outline-none"
-                              >
-                                <option value="">
-                                  {row.targetStopName && !row.matchedStopId
-                                    ? `⚠️ "${row.targetStopName}" (Assign Stop…)`
-                                    : '— No specific stop —'}
-                                </option>
-                                {routes.map((r) => (
-                                  <optgroup key={r.id} label={r.name}>
-                                    {(r.stops || []).map((st) => (
-                                      <option key={st.id} value={st.id}>
-                                        {st.name} {st.is_school ? '🏫' : ''}
-                                      </option>
+                                      setParsedRoster((prev) => {
+                                        if (!prev) return prev
+                                        const updatedRows = prev.rows.map((r) => {
+                                          if (r.index !== row.index) return r
+                                          const hasName = Boolean(r.fullName)
+                                          return {
+                                            ...r,
+                                            matchedStopId: selectedId || null,
+                                            matchedStopName: selectedStopName,
+                                            status: hasName ? (r.parentPhone ? 'valid' : 'warning') : 'error',
+                                            issues: r.parentPhone ? [] : ['No parent phone'],
+                                          }
+                                        })
+                                        return {
+                                          ...prev,
+                                          rows: updatedRows,
+                                          validCount: updatedRows.filter((r) => r.status === 'valid').length,
+                                          warningCount: updatedRows.filter((r) => r.status === 'warning').length,
+                                          errorCount: updatedRows.filter((r) => r.status === 'error').length,
+                                        }
+                                      })
+                                    }}
+                                    className="h-8 max-w-[210px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-800 focus:border-[#0D9488] focus:outline-none"
+                                  >
+                                    <option value="">
+                                      {row.targetStopName && !row.matchedStopId
+                                        ? `⚠️ "${row.targetStopName}" (Assign Stop…)`
+                                        : '— No specific stop —'}
+                                    </option>
+                                    {routes.map((r) => (
+                                      <optgroup key={r.id} label={r.name}>
+                                        {(r.stops || []).map((st) => (
+                                          <option key={st.id} value={st.id}>
+                                            {st.name} {st.is_school ? '🏫' : ''}
+                                          </option>
+                                        ))}
+                                      </optgroup>
                                     ))}
-                                  </optgroup>
-                                ))}
-                              </select>
-                              {row.targetStopName && !row.matchedStopId && (
-                                <span className="text-[10px] text-amber-700 font-mono">Area: "{row.targetStopName}"</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-2.5">
-                            {row.status === 'valid' ? (
-                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">Ready</span>
-                            ) : row.status === 'warning' ? (
-                              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">{row.issues[0]}</span>
-                            ) : (
-                              <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">Error</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                                  </select>
+                                  {row.targetStopName && !row.matchedStopId && (
+                                    <span className="text-[10px] text-amber-700 font-mono">Area: "{row.targetStopName}"</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-2.5">
+                                {row.status === 'valid' ? (
+                                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">Ready</span>
+                                ) : row.status === 'warning' ? (
+                                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">{row.issues[0]}</span>
+                                ) : (
+                                  <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">Error</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
 
                 {/* Action Buttons */}
                 <div className="mt-2 flex items-center justify-between pt-2 border-t border-slate-100">
