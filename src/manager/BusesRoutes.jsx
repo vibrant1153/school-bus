@@ -497,18 +497,42 @@ export default function BusesRoutes() {
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={openAddBusWizard}
-            className="flex items-center gap-1.5 rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs"
-          >
-            <span className="text-sm font-bold leading-none">＋</span>
-            <span>Add Bus</span>
-          </button>
+          {activeTab === 'fleet' && (
+            <button
+              type="button"
+              onClick={openAddBusWizard}
+              className="flex items-center gap-1.5 rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs"
+            >
+              <span className="text-sm font-bold leading-none">＋</span>
+              <span>Add Bus</span>
+            </button>
+          )}
+
+          {activeTab === 'routes' && (
+            <button
+              type="button"
+              onClick={() => setShowNewRouteModal(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs"
+            >
+              <span className="text-sm font-bold leading-none">＋</span>
+              <span>Create Route</span>
+            </button>
+          )}
+
+          {activeTab === 'drivers' && (
+            <button
+              type="button"
+              onClick={() => setShowNewDriverModal(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs"
+            >
+              <span className="text-sm font-bold leading-none">＋</span>
+              <span>Add Driver</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Sub-Navigation: Fleet | Reusable Routes | Driver Directory ── */}
+      {/* ── Sub-Navigation: Fleet | Routes & Stops | Drivers ── */}
       <div className="flex items-center gap-1 border-b border-[#E2E8F0]">
         <button
           type="button"
@@ -536,7 +560,7 @@ export default function BusesRoutes() {
               : 'border-transparent text-[#64748B] hover:text-[#172033]')
           }
         >
-          <span>Reusable Routes</span>
+          <span>Routes & Stops</span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-[#64748B]">
             {routes.length}
           </span>
@@ -552,7 +576,7 @@ export default function BusesRoutes() {
               : 'border-transparent text-[#64748B] hover:text-[#172033]')
           }
         >
-          <span>Driver Directory</span>
+          <span>Drivers</span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-[#64748B]">
             {drivers.length}
           </span>
@@ -621,12 +645,6 @@ export default function BusesRoutes() {
               const activeTrip = todayTrips.find(
                 (t) => t.bus_id === bus.id && t.status === 'in_progress'
               )
-
-              // Coordinates for map preview
-              const stopPoints = rawStops
-                .filter((s) => s.lat && s.lng)
-                .map((s) => [s.lat, s.lng])
-              const mapCenter = stopPoints.length > 0 ? stopPoints[0] : [9.025, 38.765]
 
               return (
                 <div
@@ -724,15 +742,22 @@ export default function BusesRoutes() {
                     </div>
                   </div>
 
-                  {/* ── EXPANDABLE DETAILS PANEL (As in User Image 2) ── */}
+                  {/* ── EXPANDABLE DETAILS PANEL ── */}
                   {isExpanded && (
                     <div className="border-t border-[#E2E8F0] bg-[#F8FAFC]/60 p-4 sm:p-5 rounded-b-xl flex flex-col gap-4 animate-fadeIn">
-                      {/* Driver & Route Change Links */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-lg border border-[#E2E8F0] text-xs">
-                        <div className="flex items-center gap-4">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-[#64748B]">Assigned Driver:</span>
-                            <span className="ml-1.5 font-bold text-[#172033]">{bus.driverName || 'None'}</span>
+                      {/* Driver & Route Quick Configuration Ribbon */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-[#E2E8F0] shadow-2xs">
+                        <div className="flex flex-wrap items-center gap-4 text-xs">
+                          {/* Driver Chip */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-base" aria-hidden="true">👤</span>
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-[#64748B] block">Assigned Driver</span>
+                              <span className="font-bold text-[#172033]">{bus.driverName || 'No driver assigned'}</span>
+                              {bus.driverPhone && (
+                                <span className="ml-1.5 text-[11px] font-mono text-[#64748B]">({bus.driverPhone})</span>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -740,15 +765,26 @@ export default function BusesRoutes() {
                                 setQuickChangeType('driver')
                                 setQuickTargetId(bus.driverProfileId || '')
                               }}
-                              className="ml-2 text-[11px] font-bold text-[#0D9488] hover:underline"
+                              className="ml-1 rounded px-2 py-0.5 text-[11px] font-bold text-[#0D9488] hover:bg-[#E6F4F1] transition-colors"
                             >
-                              Change driver
+                              {bus.driverName ? 'Change' : '+ Assign'}
                             </button>
                           </div>
-                          <span className="text-[#CBD5E1]">|</span>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-[#64748B]">Assigned Route:</span>
-                            <span className="ml-1.5 font-bold text-[#172033]">{assignedRoute?.name || 'None'}</span>
+
+                          <div className="hidden sm:block h-7 w-[1px] bg-[#E2E8F0]" />
+
+                          {/* Route Chip */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-base" aria-hidden="true">🚌</span>
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-[#64748B] block">Assigned Route</span>
+                              <span className="font-bold text-[#172033]">{assignedRoute?.name || 'No route assigned'}</span>
+                              {assignedRoute && (
+                                <span className="ml-1.5 text-[11px] text-[#64748B]">
+                                  ({rawStops.length} stops · {assignedRoute.startTime || '06:45 AM'})
+                                </span>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -756,9 +792,9 @@ export default function BusesRoutes() {
                                 setQuickChangeType('route')
                                 setQuickTargetId(bus.routeId || '')
                               }}
-                              className="ml-2 text-[11px] font-bold text-[#0D9488] hover:underline"
+                              className="ml-1 rounded px-2 py-0.5 text-[11px] font-bold text-[#0D9488] hover:bg-[#E6F4F1] transition-colors"
                             >
-                              Change route
+                              {assignedRoute ? 'Change' : '+ Assign'}
                             </button>
                           </div>
                         </div>
@@ -766,212 +802,195 @@ export default function BusesRoutes() {
                         <button
                           type="button"
                           onClick={() => setBusToDelete(bus)}
-                          className="text-[11px] font-bold text-red-600 hover:text-red-700"
+                          className="self-end sm:self-auto rounded-lg border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors"
                         >
                           Remove vehicle
                         </button>
                       </div>
 
-                      {/* Stops & Map Layout */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                        {/* Ordered Stops Timeline */}
-                        <div className="lg:col-span-7 flex flex-col gap-2.5">
-                          <div className="flex items-center justify-between">
+                      {/* Full-Width Route Stops Sequence (Clean Timeline, No Map Clutter) */}
+                      <div className="w-full flex flex-col gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3.5 rounded-xl border border-[#E2E8F0]">
+                          <div>
                             <div className="flex items-center gap-2">
                               <h3 className="text-xs font-bold uppercase tracking-wider text-[#172033]">
-                                Route stops
+                                Route Stops Sequence
                               </h3>
-                              <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-[#64748B]">
-                                {rawStops.length} stops
+                              <span className="rounded-full bg-[#E6F4F1] px-2.5 py-0.5 text-[11px] font-bold text-[#0D9488]">
+                                {rawStops.length} {rawStops.length === 1 ? 'stop' : 'stops'}
                               </span>
                             </div>
+                            <p className="text-[11px] text-[#64748B] mt-0.5">
+                              {direction === 'Morning'
+                                ? 'Pickup sequence order towards the school campus'
+                                : 'Drop-off sequence order departing from the school campus'}
+                            </p>
+                          </div>
 
+                          <div className="flex items-center gap-2.5">
                             {/* Direction toggle */}
-                            <div className="inline-flex rounded-md border border-[#E2E8F0] bg-white p-0.5 text-[11px]">
+                            <div className="inline-flex rounded-lg border border-[#E2E8F0] bg-slate-50 p-0.5 text-xs">
                               <button
                                 type="button"
                                 onClick={() => setDirection('Morning')}
                                 className={
-                                  'rounded px-2 py-0.5 font-semibold transition-colors ' +
-                                  (direction === 'Morning' ? 'bg-[#1D3557] text-white' : 'text-[#64748B] hover:text-[#172033]')
+                                  'rounded-md px-3 py-1 font-bold transition-all ' +
+                                  (direction === 'Morning' ? 'bg-[#1D3557] text-white shadow-2xs' : 'text-[#64748B] hover:text-[#172033]')
                                 }
                               >
-                                Morning
+                                ☀️ Morning Pickup
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setDirection('Afternoon')}
                                 className={
-                                  'rounded px-2 py-0.5 font-semibold transition-colors ' +
-                                  (direction === 'Afternoon' ? 'bg-[#1D3557] text-white' : 'text-[#64748B] hover:text-[#172033]')
+                                  'rounded-md px-3 py-1 font-bold transition-all ' +
+                                  (direction === 'Afternoon' ? 'bg-[#1D3557] text-white shadow-2xs' : 'text-[#64748B] hover:text-[#172033]')
                                 }
                               >
-                                Afternoon
+                                🌆 Afternoon Drop-off
                               </button>
                             </div>
+
+                            {assignedRoute && (
+                              <button
+                                type="button"
+                                onClick={() => openAddStopModalForRoute(assignedRoute.id)}
+                                className="rounded-lg bg-[#0D9488] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs flex items-center gap-1"
+                              >
+                                <span>＋</span>
+                                <span>Add Stop</span>
+                              </button>
+                            )}
                           </div>
+                        </div>
 
-                          {(!assignedRoute || rawStops.length === 0) ? (
-                            <div className="rounded-lg border border-dashed border-[#CBD5E1] bg-white p-6 text-center text-xs text-[#64748B]">
-                              <p className="font-semibold text-[#172033]">
-                                {!assignedRoute ? 'No route assigned to this bus' : 'No stops configured on this route'}
-                              </p>
-                              <p className="mt-0.5 text-[11px]">
-                                Add stops to define where this bus picks up students.
-                              </p>
-                              {assignedRoute && (
-                                <button
-                                  type="button"
-                                  onClick={() => openAddStopModalForRoute(assignedRoute.id)}
-                                  className="mt-2.5 rounded-lg bg-[#0D9488] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#0F766E]"
+                        {(!assignedRoute || rawStops.length === 0) ? (
+                          <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-8 text-center text-xs text-[#64748B]">
+                            <p className="font-bold text-[#172033] text-sm">
+                              {!assignedRoute ? 'No route assigned to this vehicle' : 'No stops configured on this route'}
+                            </p>
+                            <p className="mt-1 text-xs">
+                              {!assignedRoute
+                                ? 'Click "Assign" above to link a route template to this bus.'
+                                : 'Add pickup landmarks to define where this bus collects students.'}
+                            </p>
+                            {assignedRoute && (
+                              <button
+                                type="button"
+                                onClick={() => openAddStopModalForRoute(assignedRoute.id)}
+                                className="mt-3 rounded-lg bg-[#0D9488] px-4 py-2 text-xs font-bold text-white hover:bg-[#0F766E] transition-colors shadow-2xs"
+                              >
+                                + Add First Stop
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {orderedStops.map((stop, sIdx, arr) => {
+                              const isFinal = sIdx === arr.length - 1
+                              const isCampus = stop.is_school || stop.isSchool
+
+                              return (
+                                <div
+                                  key={stop.id || sIdx}
+                                  className={
+                                    'flex items-center justify-between rounded-xl border p-3 sm:p-3.5 transition-all bg-white ' +
+                                    (isCampus
+                                      ? 'border-[#1D3557]/30 bg-[#F8FAFC]'
+                                      : 'border-[#E2E8F0] hover:border-[#CBD5E1]')
+                                  }
                                 >
-                                  + Add First Stop
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-[1.5px] before:bg-[#E2E8F0]">
-                              {orderedStops.map((stop, sIdx, arr) => {
-                                const isFinal = sIdx === arr.length - 1
-                                const isCampus = stop.is_school || stop.isSchool
-
-                                return (
-                                  <div
-                                    key={stop.id}
-                                    className="relative flex items-center justify-between rounded-lg border border-[#E2E8F0] bg-white p-2.5 hover:border-[#CBD5E1] transition-colors"
-                                  >
-                                    {/* Stop sequence bullet */}
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    {/* Step badge */}
                                     <div
                                       className={
-                                        'absolute -left-6 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ring-4 ring-white ' +
-                                        (isCampus ? 'bg-[#1D3557] text-white' : 'bg-[#0D9488] text-white')
+                                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ' +
+                                        (isCampus
+                                          ? 'bg-[#1D3557] text-white shadow-2xs'
+                                          : 'bg-[#0D9488] text-white shadow-2xs')
                                       }
                                     >
                                       {isCampus ? '🏫' : sIdx + 1}
                                     </div>
 
-                                    <div className="min-w-0 pr-2">
-                                      <p className="font-bold text-[#172033] text-xs truncate">{stop.name}</p>
-                                      <p className="text-[10px] text-[#64748B]">
-                                        {isCampus ? 'Final destination / School Campus' : 'Pickup point'}
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="font-bold text-[#172033] text-sm truncate">{stop.name}</p>
+                                        {isCampus && (
+                                          <span className="rounded bg-[#1D3557]/10 px-2 py-0.5 text-[10px] font-bold text-[#1D3557]">
+                                            School Campus
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-[#64748B]">
+                                        {isCampus
+                                          ? 'Final destination for morning drop-off & afternoon departure'
+                                          : `Stop #${sIdx + 1} · Student pickup & drop-off landmark`}
                                       </p>
                                     </div>
-
-                                    {/* Stop Reorder & Remove */}
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      {direction === 'Morning' && (
-                                        <>
-                                          <button
-                                            type="button"
-                                            disabled={sIdx === 0}
-                                            onClick={() => handleMoveStop(assignedRoute, sIdx, -1)}
-                                            className="h-6 w-6 rounded border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="Move stop earlier in pickup order"
-                                            aria-label="Move stop earlier in pickup order"
-                                          >
-                                            ↑
-                                          </button>
-                                          <button
-                                            type="button"
-                                            disabled={isFinal}
-                                            onClick={() => handleMoveStop(assignedRoute, sIdx, 1)}
-                                            className="h-6 w-6 rounded border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="Move stop later in pickup order"
-                                            aria-label="Move stop later in pickup order"
-                                          >
-                                            ↓
-                                          </button>
-                                        </>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => setStopToDelete(stop)}
-                                        className="h-6 w-6 rounded border border-red-200 text-xs text-[#DC2626] hover:bg-red-50 ml-1"
-                                        title="Remove stop"
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
                                   </div>
-                                )
-                              })}
-                            </div>
-                          )}
 
-                          {assignedRoute && (
-                            <div className="flex items-center justify-between pt-1">
-                              <button
-                                type="button"
-                                onClick={() => openAddStopModalForRoute(assignedRoute.id)}
-                                className="text-xs font-bold text-[#0D9488] hover:underline"
-                              >
-                                + Add stop
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveTab('routes')
-                                }}
-                                className="text-xs font-semibold text-[#64748B] hover:text-[#172033]"
-                              >
-                                Edit route template →
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                                  {/* Reorder & Remove Actions */}
+                                  <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                                    {direction === 'Morning' && (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          disabled={sIdx === 0}
+                                          onClick={() => handleMoveStop(assignedRoute, sIdx, -1)}
+                                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#E2E8F0] text-xs font-bold text-[#64748B] hover:bg-slate-100 hover:text-[#172033] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                                          title="Move stop earlier in pickup order"
+                                          aria-label="Move stop earlier in pickup order"
+                                        >
+                                          ↑
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isFinal}
+                                          onClick={() => handleMoveStop(assignedRoute, sIdx, 1)}
+                                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#E2E8F0] text-xs font-bold text-[#64748B] hover:bg-slate-100 hover:text-[#172033] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                                          title="Move stop later in pickup order"
+                                          aria-label="Move stop later in pickup order"
+                                        >
+                                          ↓
+                                        </button>
+                                      </div>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => setStopToDelete(stop)}
+                                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-red-200 text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors ml-1"
+                                      title="Remove stop"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
 
-                        {/* Small Route Map Preview (As in User Image 3) */}
-                        <div className="lg:col-span-5 flex flex-col gap-1.5">
-                          <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider">
-                            Route Map Preview
-                          </span>
-                          <InteractiveMapWrapper className="relative h-56 w-full rounded-lg border border-[#E2E8F0] overflow-hidden bg-slate-100">
-                            {stopPoints.length > 0 ? (
-                              <MapContainer
-                                center={mapCenter}
-                                zoom={13}
-                                zoomControl={true}
-                                scrollWheelZoom={true}
-                                doubleClickZoom={true}
-                                touchZoom={true}
-                                className="h-full w-full"
-                              >
-                                <MapCenterController center={mapCenter} zoom={13} />
-                                <TileLayer
-                                  attribution="&copy; OpenStreetMap contributors"
-                                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                />
-                                {stopPoints.length > 1 && (
-                                  <Polyline
-                                    positions={stopPoints}
-                                    pathOptions={{ color: '#0D9488', weight: 4, dashArray: '5 5' }}
-                                  />
-                                )}
-                                {rawStops.map((st, i) => (
-                                  <CircleMarker
-                                    key={st.id || i}
-                                    center={[st.lat || 9.02, st.lng || 38.76]}
-                                    radius={st.is_school ? 9 : 7}
-                                    pathOptions={{
-                                      color: '#ffffff',
-                                      weight: 2,
-                                      fillColor: st.is_school ? '#1D3557' : '#0D9488',
-                                      fillOpacity: 1,
-                                    }}
-                                  >
-                                    <Tooltip direction="top" offset={[0, -6]}>
-                                      {st.name}
-                                    </Tooltip>
-                                  </CircleMarker>
-                                ))}
-                              </MapContainer>
-                            ) : (
-                              <div className="h-full w-full flex items-center justify-center p-4 text-center text-xs text-[#64748B]">
-                                Map preview available once stops are added.
-                              </div>
-                            )}
-                          </InteractiveMapWrapper>
-                        </div>
+                        {assignedRoute && (
+                          <div className="flex items-center justify-between pt-2 px-1 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => openAddStopModalForRoute(assignedRoute.id)}
+                              className="font-bold text-[#0D9488] hover:underline flex items-center gap-1"
+                            >
+                              <span>＋</span>
+                              <span>Add another stop to {assignedRoute.name}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('routes')}
+                              className="font-semibold text-[#64748B] hover:text-[#172033]"
+                            >
+                              Manage all routes & stops →
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -982,14 +1001,14 @@ export default function BusesRoutes() {
         </div>
       )}
 
-      {/* ── TAB 2: REUSABLE ROUTE MANAGEMENT (Images 6 & 7) ── */}
+      {/* ── TAB 2: ROUTES & STOPS MANAGEMENT ── */}
       {activeTab === 'routes' && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-bold text-[#172033]">Transit Route Templates</h2>
+              <h2 className="text-sm font-bold text-[#172033]">Routes & Stop Sequences</h2>
               <p className="text-xs text-[#64748B]">
-                Routes are reusable templates. Multiple buses can operate the same route without duplicating stops.
+                School bus routes and their ordered stop points. Assign routes to buses in the School Fleet tab.
               </p>
             </div>
             <button
@@ -1001,6 +1020,19 @@ export default function BusesRoutes() {
             </button>
           </div>
 
+          {/* Duplicate Route Detection Helper Banner */}
+          {routes.some((r, i) => routes.findIndex((o) => o.name.trim().toLowerCase() === r.name.trim().toLowerCase()) !== i) && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900">
+              <span className="text-base leading-none" aria-hidden="true">💡</span>
+              <div className="flex-1">
+                <p className="font-bold">Notice: Multiple routes share identical names</p>
+                <p className="mt-0.5 text-amber-800">
+                  Active routes operating your school buses are marked with an <strong className="text-emerald-800">Active</strong> badge. You can safely remove unassigned duplicate routes using the <strong>Delete Route</strong> button on each card.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {routes.length === 0 ? (
               <div className="col-span-2 rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-xs text-[#64748B]">
@@ -1010,28 +1042,34 @@ export default function BusesRoutes() {
               routes.map((route) => {
                 const assignedBuses = buses.filter((b) => b.routeId === route.id)
                 const stops = route.stops || []
+                const isActive = assignedBuses.length > 0
 
                 return (
                   <div key={route.id} className="rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-2xs flex flex-col justify-between gap-3">
                     <div>
-                      <div className="flex items-start justify-between">
+                      {/* Route Header & Status Badge */}
+                      <div className="flex items-start justify-between gap-2">
                         <div>
-                          <h3 className="text-sm font-bold text-[#172033]">{route.name}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-[#172033]">{route.name}</h3>
+                            {isActive ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                <span>Active</span>
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 border border-slate-200">
+                                Unassigned
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-[#64748B] mt-0.5">
                             Morning start: <strong>{route.startTime || '06:45 AM'}</strong> · {stops.length} stops
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setRouteToDelete(route)}
-                          className="text-xs text-red-500 hover:text-red-700"
-                          title="Delete route"
-                        >
-                          🗑️
-                        </button>
                       </div>
 
-                      {/* Buses Assigned to this Route (Can be 1 or multiple buses!) */}
+                      {/* Buses Assigned to this Route */}
                       <div className="mt-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] p-2.5">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
                           Assigned Fleet Units:
@@ -1056,39 +1094,74 @@ export default function BusesRoutes() {
 
                       {/* Stop Sequence Preview */}
                       <div className="mt-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
-                          Stop Sequence:
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                            Stop Sequence ({stops.length}):
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openAddStopModalForRoute(route.id)}
+                            className="text-[11px] font-bold text-[#0D9488] hover:underline"
+                          >
+                            + Add Stop
+                          </button>
+                        </div>
+
                         {stops.length > 0 ? (
-                          <ul className="mt-1 space-y-1">
+                          <div className="mt-2 space-y-1.5 max-h-56 overflow-y-auto pr-1">
                             {stops.map((s, idx) => (
-                              <li key={s.id || idx} className="text-xs text-[#172033] flex items-center justify-between">
-                                <span className="truncate max-w-[200px]">
-                                  {idx + 1}. {s.name} {s.is_school ? '🏫' : ''}
-                                </span>
+                              <div
+                                key={s.id || idx}
+                                className="flex items-center justify-between rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/60 px-2.5 py-1.5 text-xs text-[#172033] hover:border-[#CBD5E1] transition-colors"
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white border border-[#CBD5E1] text-[10px] font-bold text-[#1D3557]">
+                                    {s.is_school ? '🏫' : idx + 1}
+                                  </span>
+                                  <span className="font-semibold truncate">{s.name}</span>
+                                  {s.is_school && (
+                                    <span className="rounded bg-[#1D3557]/10 px-1.5 py-0.2 text-[9px] font-bold text-[#1D3557]">
+                                      School
+                                    </span>
+                                  )}
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => setStopToDelete(s)}
-                                  className="text-[10px] text-red-500 hover:text-red-700"
+                                  className="h-5 w-5 rounded text-[#64748B] hover:text-red-600 hover:bg-red-50 text-[11px] font-bold transition-colors ml-2"
+                                  title="Remove stop"
                                 >
                                   ✕
                                 </button>
-                              </li>
+                              </div>
                             ))}
-                          </ul>
+                          </div>
                         ) : (
-                          <p className="text-[11px] text-[#64748B] italic mt-0.5">No stops added yet.</p>
+                          <p className="text-[11px] text-[#64748B] italic mt-1 bg-[#F8FAFC] p-3 rounded-lg border border-dashed border-[#CBD5E1] text-center">
+                            No stops added yet. Click "+ Add Stop" to add pickup landmarks.
+                          </p>
                         )}
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-[#E2E8F0] flex justify-end">
+                    {/* Card Actions: Add Stop & Delete Route */}
+                    <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-between">
                       <button
                         type="button"
                         onClick={() => openAddStopModalForRoute(route.id)}
-                        className="rounded-lg bg-[#E6F4F1] text-[#0D9488] font-bold px-3 py-1 text-xs hover:bg-[#0D9488] hover:text-white transition-colors"
+                        className="rounded-lg bg-[#E6F4F1] text-[#0D9488] font-bold px-3 py-1.5 text-xs hover:bg-[#0D9488] hover:text-white transition-colors"
                       >
                         + Add Stop
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRouteToDelete(route)}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors flex items-center gap-1"
+                        title="Delete this route"
+                      >
+                        <span>🗑️</span>
+                        <span>Delete Route</span>
                       </button>
                     </div>
                   </div>

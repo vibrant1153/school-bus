@@ -1099,6 +1099,31 @@ export function useManagerData() {
   // Mutation 12c: Delete Route
   async function deleteRoute(routeId) {
     if (!routeId) throw new Error('Route ID is required.')
+
+    // 1. Check if any stops exist under this route and clear student_stops references
+    const { data: routeStops } = await supabase
+      .from('stops')
+      .select('id')
+      .eq('route_id', routeId)
+      .eq('school_id', schoolId)
+
+    if (routeStops && routeStops.length > 0) {
+      const stopIds = routeStops.map((s) => s.id)
+      await supabase
+        .from('student_stops')
+        .delete()
+        .in('stop_id', stopIds)
+        .eq('school_id', schoolId)
+    }
+
+    // 2. Unassign any buses linked to this route
+    await supabase
+      .from('bus_assignments')
+      .delete()
+      .eq('route_id', routeId)
+      .eq('school_id', schoolId)
+
+    // 3. Delete the route (cascades stops in DB)
     const { error: routeErr } = await supabase
       .from('routes')
       .delete()
